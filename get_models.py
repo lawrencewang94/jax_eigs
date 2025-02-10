@@ -309,3 +309,48 @@ def get_model(model_arch, use_BN=True, use_DO=False, resnet_base=16, sc_conv=Fal
         )
         model_name = f"ResNet9" + "_seed" + str(seed) + "_" + model_mode
     return model, model_name
+
+
+class ResNet20(nn.Module):
+    """A ResNet20 model."""
+    resnet_base = 8
+    use_DO = False
+    use_BN = True
+    sc_conv = 'Identity'
+    deterministic: tp.Optional[bool] = None
+
+    @nn.compact
+    def __call__(self, x, train=True):
+        deterministic = not train
+        deterministic = nn.merge_param('deterministic', self.deterministic, deterministic)
+        x = nn.Conv(self.resnet_base, [3, 3], strides=[1, 1], use_bias=False)(x)
+        x = nn.BatchNorm(use_running_average=deterministic)(x) if self.use_BN else modules.Lambda(f=lambda x: x)(x)
+        x = nn.Dropout(0.1)(x, deterministic=deterministic) if self.use_DO else modules.Lambda(f=lambda x: x)(x)
+        x = modules.Lambda(jax.nn.relu)(x)
+
+        x = modules.ResBlock(out_channels=1 * self.resnet_base, dropout=self.use_DO, bn=self.use_BN,
+                             sc_conv=self.sc_conv)(x, deterministic)  # 3
+        x = modules.ResBlock(out_channels=1 * self.resnet_base, dropout=self.use_DO, bn=self.use_BN,
+                             sc_conv=self.sc_conv)(x, deterministic)  # 5
+        x = modules.ResBlock(out_channels=1 * self.resnet_base, dropout=self.use_DO, bn=self.use_BN,
+                             sc_conv=self.sc_conv)(x, deterministic)  # 7
+
+        x = modules.ResBlock(out_channels=2 * self.resnet_base, strides=2, dropout=self.use_DO, bn=self.use_BN,
+                             sc_conv=self.sc_conv)(x, deterministic)  # 9
+        x = modules.ResBlock(out_channels=2 * self.resnet_base, dropout=self.use_DO, bn=self.use_BN,
+                             sc_conv=self.sc_conv)(x, deterministic)  # 11
+        x = modules.ResBlock(out_channels=2 * self.resnet_base, dropout=self.use_DO, bn=self.use_BN,
+                             sc_conv=self.sc_conv)(x, deterministic)  # 13
+
+        x = modules.ResBlock(out_channels=4 * self.resnet_base, strides=2, dropout=self.use_DO, bn=self.use_BN,
+                             sc_conv=self.sc_conv)(x, deterministic)  # 15
+        x = modules.ResBlock(out_channels=4 * self.resnet_base, dropout=self.use_DO, bn=self.use_BN,
+                             sc_conv=self.sc_conv)(x, deterministic)  # 17
+        x = modules.ResBlock(out_channels=4 * self.resnet_base, dropout=self.use_DO, bn=self.use_BN,
+                             sc_conv=self.sc_conv)(x, deterministic)  # 19
+
+        x = partial(jnp.mean, axis=(1, 2))(x)
+        # x = jnp.mean(x, axis=(1, 2))
+        x = nn.Dense(10)(x)
+
+        return x

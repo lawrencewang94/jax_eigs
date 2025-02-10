@@ -12,6 +12,7 @@ import jax.flatten_util as fu
 import jax.tree_util as tu
 import importlib
 import time
+from optax import contrib
 
 # import refactor.utils as utils
 import utils
@@ -30,9 +31,140 @@ def _tree_zeros_like(tree):
         return np.zeros_like(x)
     return tu.tree_map(zeros, tree)
 
-def train_model(state, model, loss_fn, metrics_history, n_epochs, loaders, name, callbacks=[],
+
+def _get_train_jits(loss_fn, option=""):
+
+    @jax.jit
+    def _train_step_vanilla(state, batch):
+        def get_loss(params):
+            preds = state.apply_fn({'params': params,},
+                                            batch[0], train=True,)
+            loss = loss_fn(preds, batch[1]).mean()
+            return loss
+
+        grad_fn = jax.grad(get_loss)
+        grads = grad_fn(state.params)
+        state = state.apply_gradients(grads=grads)
+        return state
+
+    @jax.jit
+    def _get_grads_vanilla(state, batch):
+        def get_loss(params):
+            preds = state.apply_fn({'params': params,}, batch[0], train=True, )
+            loss = loss_fn(preds, batch[1]).mean()
+            return loss
+
+        grad_fn = jax.grad(get_loss)
+        grads = grad_fn(state.params)
+        return state, grads
+
+    @jax.jit
+    def _compute_metrics_vanilla(*, state, batch):
+        preds = state.apply_fn({'params': state.params}, batch[0], train=False)
+        loss = loss_fn(preds, batch[1]).mean()
+        metric_updates = state.metrics.single_from_model_output(
+            logits=preds, labels=batch[1], loss=loss)
+        metrics = state.metrics.merge(metric_updates)
+        state = state.replace(metrics=metrics)
+        return state
+
+    @jax.jit
+    def _train_step_bn(state, batch):
+        def get_loss(params):
+            preds, updates = state.apply_fn({'params': params, 'batch_stats': state.batch_stats},
+                                            batch[0], train=True, mutable=['batch_stats'])
+            loss = loss_fn(preds, batch[1]).mean()
+            return loss, updates
+
+        grad_fn = jax.value_and_grad(get_loss, has_aux=True)
+        (loss, updates), grads = grad_fn(state.params)
+        state = state.apply_gradients(grads=grads)
+        state = state.replace(batch_stats=updates['batch_stats'])
+        return state
+
+    @jax.jit
+    def _get_grads_bn(state, batch):
+        def get_loss(params):
+            preds, updates = state.apply_fn({'params': params, 'batch_stats': state.batch_stats},
+                                            batch[0], train=True, mutable=['batch_stats'])
+            loss = loss_fn(preds, batch[1]).mean()
+            return loss, updates
+
+        grad_fn = jax.value_and_grad(get_loss, has_aux=True)
+        (loss, updates), grads = grad_fn(state.params)
+        state = state.replace(batch_stats=updates['batch_stats'])
+        return state, grads
+
+    @jax.jit
+    def _compute_metrics_bn(*, state, batch):
+        preds = state.apply_fn({'params': state.params, 'batch_stats': state.batch_stats}, batch[0], train=False)
+        loss = loss_fn(preds, batch[1]).mean()
+        metric_updates = state.metrics.single_from_model_output(
+            logits=preds, labels=batch[1], loss=loss)
+        metrics = state.metrics.merge(metric_updates)
+        state = state.replace(metrics=metrics)
+        return state
+
+    @jax.jit
+    def _train_step_sam(state, batch):
+        def get_loss(params):
+            preds, updates = state.apply_fn({'params': params, 'batch_stats': state.batch_stats},
+                                            batch[0], train=True, mutable=['batch_stats'])
+            loss = loss_fn(preds, batch[1]).mean()
+            return loss, updates
+
+        def get_loss_adv(params):
+            preds = state.apply_fn({'params': params, 'batch_stats': state.batch_stats},
+                                            batch[0], train=False)
+            loss = loss_fn(preds, batch[1]).mean()
+            return loss
+
+        grad_fn = jax.value_and_grad(get_loss, has_aux=True)
+        (loss, updates), grads = grad_fn(state.params)
+
+        if isinstance(state.opt_state, contrib.SAMState):
+            state = state.apply_gradients_SAM(grads=grads, loss_wrap=get_loss_adv)
+        else:
+            state = state.apply_gradients(grads=grads)
+        state = state.replace(batch_stats=updates['batch_stats'])
+        return state
+
+    @jax.jit
+    def _get_grads_sam(state, batch):
+        def get_loss(params):
+            preds, updates = state.apply_fn({'params': params, 'batch_stats': state.batch_stats},
+                                            batch[0], train=True, mutable=['batch_stats'])
+            loss = loss_fn(preds, batch[1]).mean()
+            return loss, updates
+
+        grad_fn = jax.value_and_grad(get_loss, has_aux=True)
+        (loss, updates), grads = grad_fn(state.params)
+        state = state.replace(batch_stats=updates['batch_stats'])
+        return state, grads
+
+    @jax.jit
+    def _compute_metrics_sam(*, state, batch):
+        preds = state.apply_fn({'params': state.params, 'batch_stats': state.batch_stats}, batch[0], train=False)
+        loss = loss_fn(preds, batch[1]).mean()
+        metric_updates = state.metrics.single_from_model_output(
+            logits=preds, labels=batch[1], loss=loss)
+        metrics = state.metrics.merge(metric_updates)
+        state = state.replace(metrics=metrics)
+        return state
+
+    if option == "":
+        return _train_step_vanilla, _get_grads_vanilla, _compute_metrics_vanilla,
+    elif option == "bn":
+        return _train_step_bn, _get_grads_bn, _compute_metrics_bn,
+    elif option == "sam":
+        return _train_step_sam, _get_grads_sam, _compute_metrics_sam,
+    else:
+        raise NotImplementedError
+
+
+def train_model(state, model, loss_fn, metrics_history, n_epochs, loaders, name, callbacks=[], option="",
                 tqdm_over_epochs=True, tqdm_over_batch=False, force_fb=False, verbose=False,
-                tqdm_mininterval=0.1, tqdm_maxinterval=10.,):
+                tqdm_maxinterval=1800,):
     '''
     # check stuff, define stuff, make folders,
     # set up loops
@@ -57,8 +189,9 @@ def train_model(state, model, loss_fn, metrics_history, n_epochs, loaders, name,
     # set up tqdm
     if isinstance(tqdm_over_epochs, bool):
         tqdm_over_epochs = int(tqdm_over_epochs)
-    epoch_bar = tqdm(range(1, n_epochs+1), desc="epochs", total=n_epochs, miniters=tqdm_over_epochs,
-                     maxinterval=tqdm_maxinterval, mininterval=tqdm_mininterval) if tqdm_over_epochs>0 \
+
+    epoch_bar = tqdm(range(1, n_epochs+1), desc="epochs", total=n_epochs, maxinterval=tqdm_maxinterval,
+                     miniters=tqdm_over_epochs) if tqdm_over_epochs>0 \
                 else range(1, n_epochs+1)
     train_bar = tqdm(train_loader, desc="training", total=len(train_loader)) if tqdm_over_batch else train_loader
     test_bar = tqdm(test_loader, desc="validation", total=len(test_loader)) if tqdm_over_batch else test_loader
@@ -83,46 +216,16 @@ def train_model(state, model, loss_fn, metrics_history, n_epochs, loaders, name,
 
         return jax.tree.map(add, tree_left, tree_right)
 
-    @jax.jit
-    def _train_step(state, batch, deterministic=False):
-        def get_loss(params):
-            preds = state.apply_fn({'params':params}, batch[0], deterministic=deterministic)
-            loss = loss_fn(preds, batch[1]).mean()
-            return loss
-        grad_fn = jax.grad(get_loss)
-        grads = grad_fn(state.params)
-        state = state.apply_gradients(grads=grads)
-        return state
-
-    @jax.jit
-    def _get_grads(state, batch, deterministic=False):
-        def get_loss(params):
-            preds = state.apply_fn({'params':params}, batch[0], deterministic=deterministic)
-            loss = loss_fn(preds, batch[1]).mean()
-            return loss
-        grad_fn = jax.grad(get_loss)
-        grads = grad_fn(state.params)
-        return grads
-
-    @jax.jit
-    def _compute_metrics(*, state, batch, deterministic=True):
-        preds = state.apply_fn({'params': state.params}, batch[0], deterministic=deterministic)
-        loss = loss_fn(preds, batch[1]).mean()
-        metric_updates = state.metrics.single_from_model_output(
-            logits=preds, labels=batch[1], loss=loss)
-        metrics = state.metrics.merge(metric_updates)
-        state = state.replace(metrics=metrics)
-        return state
+    _train_step, _get_grads,_compute_metrics = _get_train_jits(loss_fn, option=option)
 
     # compute metrics at epoch 0
-    deterministic = False # no BN stats yet
     tmp_state = state
     for batch in train_bar:
-        tmp_state = _compute_metrics(state=tmp_state, batch=batch, deterministic=deterministic)
+        tmp_state = _compute_metrics(state=tmp_state, batch=batch)
     for metric, value in tmp_state.metrics.compute().items():  # compute metrics
         metrics_history[f'train_{metric}'].append(value)  # record metrics
     for batch in test_bar:
-        tmp_state = _compute_metrics(state=tmp_state, batch=batch, deterministic=deterministic)
+        tmp_state = _compute_metrics(state=tmp_state, batch=batch)
     for metric, value in tmp_state.metrics.compute().items():  # compute metrics
         metrics_history[f'test_{metric}'].append(value)  # record metrics
     del tmp_state
@@ -133,7 +236,6 @@ def train_model(state, model, loss_fn, metrics_history, n_epochs, loaders, name,
         # ---------------------------------------
         # train
         # ---------------------------------------
-        deterministic = False
 
         if not force_fb or len(train_bar) == 1:
             # running minibatch GD
@@ -147,7 +249,7 @@ def train_model(state, model, loss_fn, metrics_history, n_epochs, loaders, name,
         else:
             grads = _tree_zeros_like(state.params)
             for batch in train_bar:
-                batch_grads = _get_grads(state, batch)  # get updated train state (which contains the updated parameters)
+                state, batch_grads = _get_grads(state, batch)  # get updated train state (which contains the updated parameters)
                 grads = _tree_add(grads, batch_grads)
 
             state = state.apply_gradients(grads=grads)
@@ -161,7 +263,7 @@ def train_model(state, model, loss_fn, metrics_history, n_epochs, loaders, name,
         # test
         # ---------------------------------------
         # model = model.eval()
-        deterministic = True
+        train = False
         test_state = state
         for test_batch in test_loader:
             test_state = _compute_metrics(state=test_state, batch=test_batch)
@@ -173,12 +275,13 @@ def train_model(state, model, loss_fn, metrics_history, n_epochs, loaders, name,
         # ---------------------------------------
         for cb in callbacks:
             try:
-                signal = cb.forward(epoch=epoch, state=state, deterministic=deterministic,
+                signal = cb.forward(epoch=epoch, state=state, train=train,
                                     tr_acc=metrics_history[f'train_accuracy'][-1],
                                     tr_loss=metrics_history[f'train_loss'][-1])
 
             except ArithmeticError:
                 # in case early stop CB has a divergence
+                print("ES Arithmetic Error")
                 callback_break_flag=True
                 callbacks[-1].final_state = state
                 callbacks[-1].final_epoch = epoch
@@ -189,25 +292,27 @@ def train_model(state, model, loss_fn, metrics_history, n_epochs, loaders, name,
         # ---------------------------------------
         # logs
         # ---------------------------------------
-        bar_text = f"{epoch}"
-        try:
-            if epoch % tqdm_over_epochs == 0:
+        if (tqdm_over_epochs > 0) and ((epoch % tqdm_over_epochs) == 0) or (callback_break_flag == True):
+            try:
+                bar_text = f"{epoch}"
                 try:
                     tr_acc = metrics_history[f'train_accuracy'][-1]
                     tr_loss = metrics_history[f'train_loss'][-1]
                     te_acc = metrics_history[f'test_accuracy'][-1]
                     te_loss = metrics_history[f'test_loss'][-1]
-                    bar_text = f"{epoch}, train:{tr_loss:.2E}/{tr_acc*100:.0%}; test:{te_loss:.2E}/{te_acc*100:.0%}"
-                    epoch_bar.set_description(bar_text)
+                    bar_text += f", train:{tr_loss:.2E}/{tr_acc:.0%}; test:{te_loss:.2E}/{te_acc:.0%}"
                 except KeyError:
                     tr_loss = metrics_history[f'train_loss'][-1]
                     te_loss = metrics_history[f'test_loss'][-1]
-                    bar_text = f"{epoch}, train:{tr_loss:.2E}; test:{te_loss:.2E}"
+                    bar_text += f", train:{tr_loss:.2E}; test:{te_loss:.2E}"
                 except AttributeError:
                     pass
-                epoch_bar.set_description(bar_text)
-        except ZeroDivisionError:
-            pass
+                if tqdm_over_epochs>0:
+                    epoch_bar.set_description(bar_text)
+
+            except ZeroDivisionError:
+                pass
+
         if callback_break_flag:
             print("terminating training", bar_text)
             break
@@ -218,6 +323,6 @@ def train_model(state, model, loss_fn, metrics_history, n_epochs, loaders, name,
     for cb in callbacks:
         cb.save()
 
-    return 1
+    return metrics_history
 
 

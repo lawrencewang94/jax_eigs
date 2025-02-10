@@ -93,11 +93,11 @@ class hessianCB(Callback):
                 self.loss_wrap = spectral.get_loss_wrap(state, self.loss_fn)  # get fn that computes loss from (model, data)
 
             try:
-                deterministic = kwargs['deterministic']
+                train = kwargs['train']
             except KeyError:
-                deterministic = True
+                train = True
 
-            get_loss = lambda w: self.loss_wrap(w, self.batch, deterministic)
+            get_loss = lambda w: self.loss_wrap(w, self.batch, train=train)
             self.last_hess = jax.hessian(get_loss)(state.params)
             self.hessians.append(self.last_hess)
             self.num_params = utils.count_params(state.params)
@@ -224,14 +224,14 @@ class spectrumCB(Callback):
 
 
 class thinCB(Callback):
-    def __init__(self, n_pl=None, plot_freq=None, save_freq=0, save_pref="traj/", verbose=False):
+    def __init__(self, n_pl=None, thin_freq=None, save_freq=0, save_pref="traj/", verbose=False):
         super().__init__(save_freq=save_freq, save_pref=save_pref, verbose=verbose)
         self.n_pl = n_pl
-        self.plot_freq = plot_freq
+        self.thin_freq = thin_freq
         self.name = "thin_" + str(n_pl)
 
     def save(self):
-        utils.thin_pickle(self.save_path+"/metrics.pkl", self.n_pl, self.plot_freq)
+        utils.thin_pickle(self.save_path+"/metrics.pkl", self.n_pl, self.thin_freq)
 
         if self.verbose: print("thinned logs saved!")
 
@@ -368,14 +368,15 @@ class reparamCB(Callback):
 
 class earlyStopCB(Callback):
     # sets LR
-    def __init__(self, acc_threshold = None, max_eps = 1999, min_eps = None, cbs = None, save_final_weights=True,
-                 save_freq=1, save_pref="traj/", verbose=False, low_thresh=0.11, low_eps=100):
+    def __init__(self, acc_threshold=None, max_eps=1999, min_eps=None, cbs=None, final_cbs=None,
+                 save_final_weights=True, save_freq=1, save_pref="traj/", verbose=False, low_thresh=0.11, low_eps=100):
         super().__init__(save_freq=save_freq, save_pref=save_pref, verbose=verbose)
         self.acc_threshold = acc_threshold
         self.cbs = cbs
         self.max_eps = max_eps
         self.min_eps = min_eps
         self.sfw = save_final_weights
+        self.final_cbs = final_cbs
 
         self.name = "esCB"
         if self.acc_threshold is not None:
@@ -427,16 +428,20 @@ class earlyStopCB(Callback):
                 break_flag = True
 
         if break_flag:
-            if self.acc_threshold is not None:
-                print("Train acc", kwargs['tr_acc'])
+            # if self.acc_threshold is not None:
+                # print("Train acc", kwargs['tr_acc'])
             self.final_epoch = kwargs['epoch']
             self.final_state = kwargs['state']
+            for cb in self.final_cbs:
+                cb.forward(epoch=0, state=kwargs['state'], train=kwargs['train'])
+
             return 'break'
 
     def save(self, error=False):
         utils.save_thing(np.zeros(1), self.save_path + f"/early_stop{self.final_epoch}.pkl")
         if self.final_state is not None and self.sfw:
             utils.save_weights(self.final_state, self.save_path + "/w" + str(self.final_epoch) + ".pkl")
+
         if error:
             utils.save_thing(np.zeros(1), self.save_path + f"/error{self.final_epoch}.pkl")
 

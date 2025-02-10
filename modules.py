@@ -274,7 +274,7 @@ class ResBlock(nn.Module):
     default_kernel_init: tp.Callable = nn.initializers.lecun_normal()
 
     @nn.compact
-    def __call__(self, x, deterministic: bool = True):
+    def __call__(self, x, train: bool = True):
         # Shortcut connection
         sc = x
         if self.strides > 1:
@@ -291,7 +291,7 @@ class ResBlock(nn.Module):
                 sc = nn.Conv(self.out_channels, kernel_size=(1, 1), strides=self.strides, use_bias=False,
                              kernel_init=self.default_kernel_init)(sc)
                 if self.bn:
-                    sc = nn.BatchNorm(use_running_average=deterministic)(sc)
+                    sc = nn.BatchNorm(use_running_average=not train)(sc)
             elif "Line" in self.sc_conv:
                 sc = sc[:, ::self.strides, ::self.strides, :]
                 sc = nn.Dense(self.out_channels)(sc)
@@ -301,9 +301,9 @@ class ResBlock(nn.Module):
             x = nn.Conv(self.out_channels, kernel_size=(3, 3), strides=(self.strides if i == 0 else 1),
                         use_bias=False, kernel_init=self.default_kernel_init)(x)
             if self.bn:
-                x = nn.BatchNorm(use_running_average=deterministic)(x)
+                x = nn.BatchNorm(use_running_average=not train)(x)
             if self.dropout:
-                x = nn.Dropout(self.p_drop)(x, deterministic=deterministic)
+                x = nn.Dropout(self.p_drop)(x, deterministic=not train)
             x = nn.relu(x)  # Activation
 
         # Residual connection
@@ -625,31 +625,84 @@ class ResBlock(nn.Module):
 
 
 def get_sgd_optimizer(lr_schedule, b1, b2, b3=None, verbose=False, debug_one=False):
-    import optax_adam_bounded as oab
-    import importlib
-    importlib.reload(oab)
     if b1 == 0 and b2 == 0:
         if verbose: print("Using vanilla SGD!")
-        optimizer = tx.Optimizer(optax.sgd(lr_schedule))
+        optimizer = optax.sgd(lr_schedule)
     elif b1 != 0 and b2 == 0:
         # if verbose: print("Using SGD momentum!")
         # optimizer = tx.Optimizer(optax.sgd(lr_scheduler, momentum=b1))
         ### Now we use adam for EMA scaled momentum, and better comparison
         if verbose: print("Using Adam!")
-        optimizer = tx.Optimizer(optax.adam(lr_schedule, b1=b1, b2=0, eps_root=1., eps=0.)) # eps root = 1 so we don't divide by 0 because b2 is 0
-    #     elif b1 == 0 and b2 != 0:
-    #         if verbose: print("Using Adam with b1=0!")
-    #         optimizer = tx.Optimizer(optax.rmsprop(lr_scheduler, decay=b2))
+        optimizer = optax.adam(lr_schedule, b1=b1, b2=0, eps_root=1., eps=0.) # eps root = 1 so we don't divide by 0 because b2 is 0
     else:
+        if b3 != 0:
+            import optax_adam_bounded as oab
+            import importlib
+            importlib.reload(oab)
+
         if verbose: print("Using Adam!")
         if b3 != 0 and debug_one:
-            optimizer = tx.Optimizer(oab.adam_one(lr_schedule, b1=b1, b2=b2))
+            optimizer = oab.adam_one(lr_schedule, b1=b1, b2=b2)
         elif b3 > 0:
-            optimizer = tx.Optimizer(oab.adam_lb(lr_schedule, b1=b1, b2=b2, lower_bound=b3))
+            optimizer = oab.adam_lb(lr_schedule, b1=b1, b2=b2, lower_bound=b3)
         elif b3 < 0:
-            optimizer = tx.Optimizer(oab.adam_ub(lr_schedule, b1=b1, b2=b2, upper_bound=abs(b3)))
+            optimizer = oab.adam_ub(lr_schedule, b1=b1, b2=b2, upper_bound=abs(b3))
         else:
-            optimizer = tx.Optimizer(optax.adam(lr_schedule, b1=b1, b2=b2))
+            optimizer = optax.adam(lr_schedule, b1=b1, b2=b2)
 
     return optimizer
 
+
+
+
+from typing import Any, Callable
+
+from flax import core
+from flax import struct
+import optax
+from optax import contrib
+
+class TrainStateSAM(struct.PyTreeNode):
+    '''
+    Taken from flax, adpated for SAM
+    '''
+    step: int
+    apply_fn: Callable = struct.field(pytree_node=False)
+    params: core.FrozenDict[str, Any] = struct.field(pytree_node=True)
+    tx: optax.GradientTransformation = struct.field(pytree_node=False)
+    opt_state: optax.OptState = struct.field(pytree_node=True)
+
+    def apply_gradients_SAM (self, *, grads, loss_wrap, **kwargs):
+        updates, new_opt_state = self.tx.update(
+            grads, self.opt_state, self.params, grad_fn=jax.grad(lambda p, _: loss_wrap(p)))
+        new_params = optax.apply_updates(self.params, updates)
+        return self.replace(
+            step=self.step + 1,
+            params=new_params,
+            opt_state=new_opt_state,
+            **kwargs,
+        )
+
+    def apply_gradients (self, *, grads, **kwargs):
+        updates, new_opt_state = self.tx.update(
+            grads, self.opt_state, self.params)
+        new_params = optax.apply_updates(self.params, updates)
+        return self.replace(
+            step=self.step + 1,
+            params=new_params,
+            opt_state=new_opt_state,
+            **kwargs,
+        )
+
+    @classmethod
+    def create (cls, *, apply_fn, params, tx, **kwargs):
+        """Creates a new instance with `step=0` and initialized `opt_state`."""
+        opt_state = tx.init(params)
+        return cls(
+            step=0,
+            apply_fn=apply_fn,
+            params=params,
+            tx=tx,
+            opt_state=opt_state,
+            **kwargs,
+        )

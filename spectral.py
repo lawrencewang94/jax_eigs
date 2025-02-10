@@ -12,6 +12,10 @@ https://github.com/google/spectral-density/tree/master/jax
 '''
 # print("YES jit")
 
+def tree_slice(tree, start_ind, slice_size):
+    return jax.tree_map(lambda x: jax.lax.dynamic_slice_in_dim(x, start_ind, slice_size, 0), tree)
+
+
 # params, batch, det -> loss
 def get_loss_wrap(state, loss_fn):
     """
@@ -87,9 +91,12 @@ def get_hvp_fn(loss_wrap, state, batch, bs=0):
 
         def body_fun(i, val):
             v, hessian_vp = val
-            batch_data = jax.lax.dynamic_slice_in_dim(batch[0], i*bs, bs)
-            batch_targets = jax.lax.dynamic_slice_in_dim(batch[1], i*bs, bs)
-            partial_vp = jitted_hvp_w(w, (batch_data, batch_targets), v) # edited for TRANSFORMER
+            # batch_data = jax.lax.dynamic_slice_in_dim(batch[0], i*bs, bs)
+            # batch_targets = jax.lax.dynamic_slice_in_dim(batch[1], i*bs, bs)
+            # partial_vp = jitted_hvp_w(w, (batch_data, batch_targets), v) # edited for TRANSFORMER
+
+            sliced_batch = tuple(tree_slice(arr, i*bs, bs) for arr in batch)
+            partial_vp = jitted_hvp_w(w, sliced_batch, v) #
             hessian_vp = _tree_add(hessian_vp, partial_vp)
             return v, hessian_vp
 

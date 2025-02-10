@@ -237,36 +237,36 @@ def thin_pickle(path, n_pl=None, pf=None, has0=True):
     thing = load_thing(path)
 
     if n_pl is None:
-        plot_freq = pf
+        thin_freq = pf
         if has0:
-            num_pl = math.ceil((len(thing)-1)/plot_freq)
+            num_pl = math.ceil((len(thing)-1)/thin_freq)
         else:
-            num_pl = math.ceil((len(thing))/plot_freq)
+            num_pl = math.ceil((len(thing))/thin_freq)
         new_path = path[:-4] + "_thin" + str(num_pl) + ".pkl"
 
         try:
             if has0:
-                thin_thing = [thing[i] for i in range(0, len(thing), plot_freq)] # from 0 onwards
+                thin_thing = [thing[i] for i in range(0, len(thing), thin_freq)] # from 0 onwards
             else:
-                assert len(thing) % plot_freq == 0
-                thin_thing = [thing[i] for i in range((len(thing)-1)%plot_freq, len(thing), plot_freq)] # from plot_freq-1 onwards
+                assert len(thing) % thin_freq == 0
+                thin_thing = [thing[i] for i in range((len(thing)-1)%thin_freq, len(thing), thin_freq)] # from plot_freq-1 onwards
         except AssertionError:
-            print(n_pl, plot_freq, len(thing), len(thing)%plot_freq)
+            print(n_pl, thin_freq, len(thing), len(thing)%thin_freq)
             raise(AssertionError)
     else:
-        plot_freq = int(len(thing) / n_pl)
+        thin_freq = int(len(thing) / n_pl)
         new_path = path[:-4] + "_thin" + str(n_pl) + ".pkl"
 
         try:
             if has0:
-                if plot_freq > 1 and n_pl > 1 and pf is None:
-                    assert len(thing) % plot_freq == 1
-                thin_thing = [thing[i] for i in range(0, len(thing), plot_freq)]  # from 0 onwards
+                if thin_freq > 1 and n_pl > 1 and pf is None:
+                    assert len(thing) % thin_freq == 1
+                thin_thing = [thing[i] for i in range(0, len(thing), thin_freq)]  # from 0 onwards
             else:
-                assert len(thing) % plot_freq == 0
-                thin_thing = [thing[i] for i in range((len(thing) - 1) % plot_freq, len(thing), plot_freq)]  # from plot_freq-1 onwards
+                assert len(thing) % thin_freq == 0
+                thin_thing = [thing[i] for i in range((len(thing) - 1) % thin_freq, len(thing), thin_freq)]  # from plot_freq-1 onwards
         except AssertionError:
-            print(n_pl, plot_freq, len(thing), len(thing) % plot_freq)
+            print(n_pl, thin_freq, len(thing), len(thing) % thin_freq)
             raise (AssertionError)
 
     save_thing(thin_thing, new_path)
