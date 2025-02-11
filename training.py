@@ -123,7 +123,7 @@ def _get_train_jits(loss_fn, option=""):
         (loss, updates), grads = grad_fn(state.params)
 
         if isinstance(state.opt_state, contrib.SAMState):
-            state = state.apply_gradients_SAM(grads=grads, loss_wrap=get_loss_adv)
+            state = state.apply_gradients_SAM(grads=grads, loss_wrap=lambda p: get_loss_adv(p))
         else:
             state = state.apply_gradients(grads=grads)
         state = state.replace(batch_stats=updates['batch_stats'])
@@ -216,7 +216,7 @@ def train_model(state, model, loss_fn, metrics_history, n_epochs, loaders, name,
 
         return jax.tree.map(add, tree_left, tree_right)
 
-    _train_step, _get_grads,_compute_metrics = _get_train_jits(loss_fn, option=option)
+    _train_step, _get_grads, _compute_metrics = _get_train_jits(loss_fn, option=option)
 
     # compute metrics at epoch 0
     tmp_state = state
@@ -316,6 +316,10 @@ def train_model(state, model, loss_fn, metrics_history, n_epochs, loaders, name,
         if callback_break_flag:
             print("terminating training", bar_text)
             break
+    if not callback_break_flag:
+        callbacks[-1].final_state = state
+        callbacks[-1].final_epoch = epoch
+
 
     # save histories
     utils.save_thing(metrics_history, "traj/" + name + "/metrics.pkl")

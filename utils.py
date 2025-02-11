@@ -741,3 +741,11 @@ def cifar5k_lr_fix(counter):
         else:
             raise KeyError
 
+def optim_to_option(optim):
+    if optim == 'asam':
+        return 'sam'
+    elif optim == 'sam':
+        return 'sam'
+    elif optim == 'looksam':
+        return 'sam'
+

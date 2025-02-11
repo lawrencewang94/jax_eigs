@@ -2,7 +2,6 @@ import copy
 
 import jax
 import jax.numpy as jnp
-import jax.random as rnd
 import numpy as np
 import pickle
 import optax
@@ -368,19 +367,22 @@ class reparamCB(Callback):
 
 class earlyStopCB(Callback):
     # sets LR
-    def __init__(self, acc_threshold=None, max_eps=1999, min_eps=None, cbs=None, final_cbs=None,
+    def __init__(self, acc_threshold=None, max_eps=1999, min_eps=None, cbs=None, final_cbs=None, conseq_eps=1,
                  save_final_weights=True, save_freq=1, save_pref="traj/", verbose=False, low_thresh=0.11, low_eps=100):
         super().__init__(save_freq=save_freq, save_pref=save_pref, verbose=verbose)
         self.acc_threshold = acc_threshold
         self.cbs = cbs
         self.max_eps = max_eps
         self.min_eps = min_eps
+        self.conseq_eps = conseq_eps
         self.sfw = save_final_weights
         self.final_cbs = final_cbs
 
         self.name = "esCB"
         if self.acc_threshold is not None:
             self.name += "_"+str(acc_threshold)
+        if self.conseq_eps > 1:
+            self.name += f"_conseq{conseq_eps}"
         if self.sfw:
             self.name += "_save"
 
@@ -390,6 +392,7 @@ class earlyStopCB(Callback):
         self.low_thresh = low_thresh
         self.low_eps = low_eps
         self.acc_counter = 0
+        self.conseq_counter = 0
 
     def forward(self, **kwargs):
         if kwargs['epoch'] % self.save_freq != 0:
@@ -411,6 +414,11 @@ class earlyStopCB(Callback):
                         break_flag = False
                         self.accs[self.acc_counter%self.low_eps] = kwargs['tr_acc']
                         self.acc_counter += 1
+                    else:
+                        if self.conseq_counter < self.conseq_eps:
+                            self.conseq_counter += 1
+                            break_flag = False
+
                 # break after low eps (100) epochs of no improvement above baseline (low thresh)
                 if self.acc_counter >= self.low_eps and np.mean(self.accs) < self.low_thresh:
                     break_flag = True
