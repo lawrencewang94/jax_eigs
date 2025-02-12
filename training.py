@@ -114,8 +114,8 @@ def _get_train_jits(loss_fn, option=""):
             return loss, updates
 
         def get_loss_adv(params):
-            preds = state.apply_fn({'params': params, 'batch_stats': state.batch_stats},
-                                            batch[0], train=True)
+            preds, _ = state.apply_fn({'params': params, 'batch_stats': state.batch_stats},
+                                            batch[0], train=True, mutable=['batch_stats'])
             loss = loss_fn(preds, batch[1]).mean()
             return loss
 

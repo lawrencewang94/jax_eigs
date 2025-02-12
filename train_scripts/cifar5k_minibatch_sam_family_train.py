@@ -145,7 +145,7 @@ def train_model(hyp, datasets=None, resume=False, n_workers=8):
             elif sam_type == 'asam':
                 optimizer = sfo.asam(base_opt, adv_opt, sync_period=sync_period, opaque_mode=True)  # sam opt
                 optim_name = f"sgdFam-aSAM_1b{b1}_2b{b2}_3b{b3}_lr{lr}_warmup{warmup_steps}_rho{rho}_syncT{sync_period}"
-            if sam_type == 'looksam':
+            if sam_type == 'lsam':
                 optimizer = sfo.looksam(base_opt, adv_opt, sync_period=sync_period, beta=0.9,
                                         opaque_mode=True)  # sam opt
                 optim_name = f"sgdFam-lSAM_1b{b1}_2b{b2}_3b{b3}_lr{lr}_warmup{warmup_steps}_rho{rho}_syncT{sync_period}"

@@ -68,14 +68,31 @@ def main():
     ]
 
     # type, rho (as a scaling factor of LR), sync_period
+    sam_rho_list = [
+        0.1,
+        0.3,
+        1.,
+        3.,
+        10.,
+    ]
+    sam_sync_list = [
+        2,
+        3,
+        5,
+    ]
+    sam_type_list = [
+        'sam',
+        'asam',
+        'lsam',
+    ]
     sam_hp_list = [
         (None, 0., 1),  # None
-        ('sam', 0.1, 2),  # SAM normal
-        ('asam', 0.1, 2),  # ASAM normal
-        ('looksam', 0.1, 2),  # lookSAM normal
     ]
 
-    seed_list = [x for x in range(1)]
+    sam_hp_list += list(itertools.product(*[sam_type_list, sam_rho_list, sam_sync_list]))
+    sam_hp_list = sorted(sam_hp_list, key=lambda x: (x[2], x[1],)) # do algs first (unsorted) then rhos and then sync
+
+    seed_list = [x for x in range(3)]
 
     from train_scripts.cifar5k_minibatch_sam_family_train import train_model
     s = [seed_list, arch_list, sam_hp_list, sgd_hp_list]
