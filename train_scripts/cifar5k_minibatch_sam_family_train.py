@@ -20,6 +20,13 @@ def train_model(hyp, datasets=None, resume=False, n_workers=8):
     from clu import metrics
     from flax.training import train_state  # Useful dataclass to keep train state
 
+    # LOAD HYPS
+    seed = hyp[0]
+    arch_name = hyp[1]
+    sam_type, sam_rho, sam_sync = hyp[2]
+    lr, b1, b2, b3 = hyp[3]
+    option = 'sam' if sam_type is not None else 'bn'
+
 
     # -----------------------------------------------------------------------------------------------------------------------------
     # FIXED PARAMS
@@ -62,8 +69,8 @@ def train_model(hyp, datasets=None, resume=False, n_workers=8):
 
     # -----------------------------------------------------------------------------------------------------------------------------
     # Architecture
-    def __get_arch__(model):
-        if model == 'vgg':
+    def __get_arch__(arch_name):
+        if arch_name == 'vgg':
             n_blocks = 3
             layers_per_block = 3
             base_width = 8
@@ -79,7 +86,7 @@ def train_model(hyp, datasets=None, resume=False, n_workers=8):
                 model_name += "_BN"
             return model, model_name
 
-        elif model == 'resnet':
+        elif arch_name == 'resnet':
             n_blocks = 3
             layers_per_block = 3
             depth_per_layer = 2
@@ -103,43 +110,48 @@ def train_model(hyp, datasets=None, resume=False, n_workers=8):
     # -----------------------------------------------------------------------------------------------------------------------------
     # Optimizer
     def __get_optim__(warmup_steps, lr, b1, b2, b3, sam_type="", rho=None, sync_period=1):
-        if sam_type[-3:] == 'sam':
+        # warmup_steps, lr, b1, b2, b3 = hyps['warmup_steps'], hyps['lr'], hyps['b1'], hyps['b2'], hyps['b3']
+        if (sam_type is None) or sam_type == '':
+            warmup_scheduler = optax.linear_schedule(init_value=0.0, end_value=lr,
+                                                     transition_steps=warmup_steps,
+                                                     transition_begin=0, )
+            constant_scheduler = optax.constant_schedule(lr)
+            lr_scheduler = optax.join_schedules([warmup_scheduler, constant_scheduler], boundaries=[warmup_steps])
+            optimizer = modules.get_sgd_optimizer(lr_scheduler, b1, b2, b3, verbose=False)
+            optim_name = f"sgdFam_1b{b1}_2b{b2}_3b{b3}_lr{lr}_warmup{warmup_steps}"
+
+        elif sam_type[-3:] == 'sam':
             assert rho is not None
             adv_lr = rho * lr
-            warmup_scheduler = optax.linear_schedule (init_value=0.0, end_value=lr,
-                                                      transition_steps=warmup_steps,
-                                                      transition_begin=0, )
-            constant_scheduler = optax.constant_schedule (lr)
-            lr_scheduler = optax.join_schedules ([warmup_scheduler, constant_scheduler], boundaries=[warmup_steps])
+            warmup_scheduler = optax.linear_schedule(init_value=0.0, end_value=lr,
+                                                     transition_steps=warmup_steps,
+                                                     transition_begin=0, )
+            constant_scheduler = optax.constant_schedule(lr)
+            lr_scheduler = optax.join_schedules([warmup_scheduler, constant_scheduler], boundaries=[warmup_steps])
 
-            adv_warmup_scheduler = optax.linear_schedule (init_value=0.0, end_value=adv_lr,
-                                                          transition_steps=warmup_steps,
-                                                          transition_begin=0, )
-            adv_constant_scheduler = optax.constant_schedule (adv_lr)
-            adv_lr_scheduler = optax.join_schedules ([adv_warmup_scheduler, adv_constant_scheduler],
-                                                     boundaries=[warmup_steps])
+            adv_warmup_scheduler = optax.linear_schedule(init_value=0.0, end_value=adv_lr,
+                                                         transition_steps=warmup_steps,
+                                                         transition_begin=0, )
+            adv_constant_scheduler = optax.constant_schedule(adv_lr)
+            adv_lr_scheduler = optax.join_schedules([adv_warmup_scheduler, adv_constant_scheduler],
+                                                    boundaries=[warmup_steps])
 
-            base_opt = modules.get_sgd_optimizer (lr_scheduler, b1, b2, b3, verbose=False)
-            adv_opt = modules.get_sgd_optimizer (adv_lr_scheduler, b1, b2, b3, verbose=False)
+            base_opt = modules.get_sgd_optimizer(lr_scheduler, b1, b2, b3, verbose=False)
+            adv_opt = modules.get_sgd_optimizer(adv_lr_scheduler, b1, b2, b3, verbose=False)
 
             if sam_type == 'sam':
-                optimizer = sfo.sam (base_opt, adv_opt, sync_period=sync_period, opaque_mode=True)  # sam opt
+                optimizer = sfo.sam(base_opt, adv_opt, sync_period=sync_period, opaque_mode=True)  # sam opt
                 optim_name = f"sgdFam-SAM_1b{b1}_2b{b2}_3b{b3}_lr{lr}_warmup{warmup_steps}_rho{rho}_syncT{sync_period}"
             elif sam_type == 'asam':
-                optimizer = sfo.asam (base_opt, adv_opt, sync_period=sync_period, opaque_mode=True)  # sam opt
+                optimizer = sfo.asam(base_opt, adv_opt, sync_period=sync_period, opaque_mode=True)  # sam opt
                 optim_name = f"sgdFam-aSAM_1b{b1}_2b{b2}_3b{b3}_lr{lr}_warmup{warmup_steps}_rho{rho}_syncT{sync_period}"
             if sam_type == 'looksam':
-                optimizer = sfo.looksam (base_opt, adv_opt, sync_period=sync_period, beta=0.9, opaque_mode=True)  # sam opt
+                optimizer = sfo.looksam(base_opt, adv_opt, sync_period=sync_period, beta=0.9,
+                                        opaque_mode=True)  # sam opt
                 optim_name = f"sgdFam-lSAM_1b{b1}_2b{b2}_3b{b3}_lr{lr}_warmup{warmup_steps}_rho{rho}_syncT{sync_period}"
 
         else:
-            warmup_scheduler = optax.linear_schedule (init_value=0.0, end_value=lr,
-                                                      transition_steps=warmup_steps,
-                                                      transition_begin=0, )
-            constant_scheduler = optax.constant_schedule (lr)
-            lr_scheduler = optax.join_schedules ([warmup_scheduler, constant_scheduler], boundaries=[warmup_steps])
-            optimizer = modules.get_sgd_optimizer (lr_scheduler, b1, b2, b3, verbose=False)
-            optim_name = f"sgdFam_1b{b1}_2b{b2}_3b{b3}_lr{lr}_warmup{warmup_steps}"
+            raise NotImplementedError
 
         return optimizer, optim_name
 
@@ -221,11 +233,6 @@ def train_model(hyp, datasets=None, resume=False, n_workers=8):
                        'test_loss': [],
                        'test_accuracy': []}
 
-    lr, b1, b2, b3 = hyp[0]
-    sam_type, sam_rho, sam_sync = hyp[1]
-    seed = hyp[2]
-    option = 'sam' if sam_type is not None else 'bn'
-
     if datasets is None:
         datasets = __get_datasets__()
 
@@ -236,15 +243,15 @@ def train_model(hyp, datasets=None, resume=False, n_workers=8):
     test_loader = lib_data.NumpyLoader (datasets[1], batch_size=eval_bs, num_workers=n_workers)
     dataloaders = [train_loader, test_loader]
 
-    model, model_name = __get_arch__ ()
-    model_name += "_seed" + str (seed)
+    model, model_name = __get_arch__(arch_name)
+    model_name += "_seed" + str(seed)
 
     optim, optim_name = __get_optim__ (warmup_steps, lr, b1, b2, b3, sam_type=sam_type, rho=sam_rho,
                                        sync_period=sam_sync)
     optim_name += f"_epochs{n_epochs}_bs{bs}"
 
-    init_rng = jax.random.PRNGKey (seed)
-    state = create_train_state (model, optim, sample_batch[0], init_rng, option=option)
+    init_rng = jax.random.PRNGKey(seed)
+    state = create_train_state(model, optim, sample_batch[0], init_rng, option=option)
     del init_rng  # Must not be used anymore.
 
     cbs = __get_cbs__ (state, compute_hessian=compute_hessian)
@@ -261,17 +268,17 @@ def train_model(hyp, datasets=None, resume=False, n_workers=8):
         experiment_name, lse = utils.find_latest_exp (experiment_name, n_epochs, save_freq=cb_freq,
                                                       cbs=cb_name_list, unknown_lse=True, verbose=False)
         metrics_history = utils.load_thing ("traj/" + experiment_name + "/metrics.pkl")
-        if compute_hessian:
-            eigvals = utils.load_thing ("traj/" + experiment_name + "/eigvals.pkl")
-            metrics_history['eigvals'] = eigvals
+        metrics_history['lse'] = [lse]
+
 
     except FileNotFoundError:
         metrics_history = training.train_model (state, model, loss_fn, metrics_history, n_epochs, dataloaders, \
                                                 experiment_name, cbs, option=option, force_fb=force_fb, tqdm_over_epochs=tqdm_freq)
 
     out_str += f"tr_acc: {metrics_history['train_accuracy'][-1]:0%}, te_acc: {metrics_history['test_accuracy'][-1]:0%}"
-    metrics_history['lse'] = [lse]
     if compute_hessian:
+        eigvals = utils.load_thing ("traj/" + experiment_name + "/eigvals.pkl")
+        metrics_history['eigvals'] = eigvals
         out_str += f"sharp: {metrics_history['eigvals'][-1][0]}"
 
     return out_str, metrics_history, datasets

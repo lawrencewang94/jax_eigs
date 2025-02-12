@@ -35,7 +35,7 @@ def do_job(tasks_to_accomplish, tasks_that_are_done, job):
             process_id = int(current_process().name[-1:])
             os.environ['CUDA_VISIBLE_DEVICES'] = str(process_id-1)
             os.environ['XLA_PYTHON_CLIENT_MEM_FRACTION'] = '0.75'
-            out_str, mh, datasets = job(task, datasets, mute=False, resume=False)
+            out_str, mh, datasets = job(task, datasets, resume=False)
             print(out_str)
             time.sleep(0.2)
 
@@ -69,16 +69,16 @@ def main():
 
     # type, rho (as a scaling factor of LR), sync_period
     sam_hp_list = [
-        (None, 0., 1), # None
-        ('sam', 1., 2), # SAM normal
-        ('asam', 1., 2), # ASAM normal
-        ('looksam', 1., 2),  # lookSAM normal
+        (None, 0., 1),  # None
+        ('sam', 0.1, 2),  # SAM normal
+        ('asam', 0.1, 2),  # ASAM normal
+        ('looksam', 0.1, 2),  # lookSAM normal
     ]
 
-    seed_list = [x for x in range(3)]
+    seed_list = [x for x in range(1)]
 
     from train_scripts.cifar5k_minibatch_sam_family_train import train_model
-    s = [seed_list, sam_hp_list, sgd_hp_list]
+    s = [seed_list, arch_list, sam_hp_list, sgd_hp_list]
     hyp_list = list(itertools.product(*s))
 
     number_of_tasks = len(hyp_list)

@@ -401,8 +401,9 @@ class TrainStateSAM(struct.PyTreeNode):
     opt_state: optax.OptState = struct.field(pytree_node=True)
 
     def apply_gradients_SAM (self, *, grads, loss_wrap, **kwargs):
+        grad_fn = jax.grad(lambda p, _: loss_wrap(p))
         updates, new_opt_state = self.tx.update(
-            grads, self.opt_state, self.params, grad_fn=jax.grad(lambda p, _: loss_wrap(p)))
+            grads, self.opt_state, self.params, grad_fn=grad_fn)
         new_params = optax.apply_updates(self.params, updates)
         return self.replace(
             step=self.step + 1,

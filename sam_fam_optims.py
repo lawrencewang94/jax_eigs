@@ -52,7 +52,7 @@ def sam(
             grad_fn: Optional[Callable[[base.Params, int], base.Updates]] = None,
     ) -> tuple[base.Updates, SAMState]:
         if grad_fn is None:
-            raise ValueError ("grad_fn must be provided when opaque_mode=True.")
+            raise ValueError("grad_fn must be provided when opaque_mode=True.")
 
         outer_params = params
         adv_params = params
@@ -60,25 +60,25 @@ def sam(
         adv_state = state.adv_state
 
         for i in range (sync_period - 1):
-            adv_updates, adv_state = adv_optimizer.update (
+            adv_updates, adv_state = adv_optimizer.update(
                 adv_updates, adv_state, adv_params
             )
-            adv_updates = jax.tree.map (lambda x: -x, adv_updates)
+            adv_updates = jax.tree.map(lambda x: -x, adv_updates)
 
             adv_params = update.apply_updates (adv_params, adv_updates)
-            adv_updates = grad_fn (adv_params, i)
+            adv_updates = grad_fn(adv_params, i)
             if batch_axis_name is not None:
                 adv_updates = jax.lax.pmean (adv_updates, axis_name=batch_axis_name)
 
         if reset_state:
-            adv_state = adv_optimizer.init (outer_params)
+            adv_state = adv_optimizer.init(outer_params)
 
-        updates, opt_state = optimizer.update (
+        updates, opt_state = optimizer.update(
             adv_updates, state.opt_state, outer_params
         )
 
-        return updates, SAMState (
-            steps_since_sync=jnp.zeros (shape=(), dtype=jnp.int32),
+        return updates, SAMState(
+            steps_since_sync=jnp.zeros(shape=(), dtype=jnp.int32),
             adv_state=adv_state,
             opt_state=opt_state,
             cache=None,
@@ -86,7 +86,7 @@ def sam(
 
     update_fn = opaque_update_fn
 
-    return base.GradientTransformationExtraArgs (init_fn, update_fn)
+    return base.GradientTransformationExtraArgs(init_fn, update_fn)
 
 
 # @chex.dataclass

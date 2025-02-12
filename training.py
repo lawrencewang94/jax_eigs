@@ -115,7 +115,7 @@ def _get_train_jits(loss_fn, option=""):
 
         def get_loss_adv(params):
             preds = state.apply_fn({'params': params, 'batch_stats': state.batch_stats},
-                                            batch[0], train=False)
+                                            batch[0], train=True)
             loss = loss_fn(preds, batch[1]).mean()
             return loss
 
@@ -123,7 +123,7 @@ def _get_train_jits(loss_fn, option=""):
         (loss, updates), grads = grad_fn(state.params)
 
         if isinstance(state.opt_state, contrib.SAMState):
-            state = state.apply_gradients_SAM(grads=grads, loss_wrap=lambda p: get_loss_adv(p))
+            state = state.apply_gradients_SAM(grads=grads, loss_wrap=get_loss_adv)
         else:
             state = state.apply_gradients(grads=grads)
         state = state.replace(batch_stats=updates['batch_stats'])
