@@ -61,10 +61,10 @@ def main():
     ]
     sgd_hp_list = [
         (0.1, 0., 0., 0.),  # sgd
-        (5e-3, 0., 0.99, 0.),  # rms
-        (5e-3, 0., 0.99, -1.),  # rms-UB
+        # (5e-3, 0., 0.99, 0.),  # rms
+        # (5e-3, 0., 0.99, -1.),  # rms-UB
         (5e-3, 0.9, 0.99, 0.),  # adam
-        (5e-3, 0.9, 0.99, -1.),  # adam-UB
+        # (5e-3, 0.9, 0.99, -1.),  # adam-UB
     ]
 
     # type, rho (as a scaling factor of LR), sync_period
@@ -78,7 +78,7 @@ def main():
     sam_sync_list = [
         2,
         3,
-        5,
+        # 5,
     ]
     sam_type_list = [
         'sam',
