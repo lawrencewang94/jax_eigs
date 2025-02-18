@@ -48,7 +48,7 @@ def do_job(tasks_to_accomplish, tasks_that_are_done, job):
                 message to task_that_are_done queue
             '''
             # print(task)
-            tasks_that_are_done.put(str(task) + ' is done by ' + current_process().name)
+            tasks_that_are_done.put(str(task) + f' is done by {current_process().name}, has test accuracy {mh["test_accuracy"][-1]:%}')
             time.sleep(.5)
     return True
 
