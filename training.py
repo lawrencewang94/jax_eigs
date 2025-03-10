@@ -320,7 +320,7 @@ def train_model(state, model, loss_fn, metrics_history, n_epochs, loaders, name,
         callbacks[-1].final_state = state
         callbacks[-1].final_epoch = epoch
 
-
+    metrics_history['lse'] = epoch
     # save histories
     utils.save_thing(metrics_history, "traj/" + name + "/metrics.pkl")
 
