@@ -1,6 +1,5 @@
 # this came from VGG-SAM-variations.py
-def train_model(hyp, datasets=None, resume=False, n_workers=8):
-
+def train_model(hyp, datasets=None, resume=False, load_only=False, n_workers=8):
     # TODO write resume logic
     import typing as tp
 
@@ -21,12 +20,11 @@ def train_model(hyp, datasets=None, resume=False, n_workers=8):
     from flax.training import train_state  # Useful dataclass to keep train state
 
     # LOAD HYPS
-    seed = hyp[0]
-    arch_name = hyp[1]
-    bs = hyp[2]
-    lr, b1, b2, b3 = hyp[3]
+    seed = hyp[1]  # was 0
+    arch_name = hyp[2]  # was 1
+    bs = hyp[3]  # was 2
+    lr, b1, b2, b3 = hyp[0]  # was 3
     option = 'bn'
-
 
     # -----------------------------------------------------------------------------------------------------------------------------
     # FIXED PARAMS
@@ -41,14 +39,14 @@ def train_model(hyp, datasets=None, resume=False, n_workers=8):
     # optim params
     warmup_steps = 2
     eval_bs = 2000
-    n_epochs = 5000
+    max_epochs = 5000
     sam_type, sam_rho, sam_sync = None, 0., 1.
     loss_fn = optax.softmax_cross_entropy_with_integer_labels
 
     # callback params
     save_weight_freq = 10
     cb_freq = 1
-    hess_freq = int (1e8)  # really large
+    hess_freq = int(1e8)  # really large
 
     # training params
     compute_hessian = True
@@ -61,9 +59,9 @@ def train_model(hyp, datasets=None, resume=False, n_workers=8):
     data_name = "cifar10_" + str(n_out) + "cl_" + str(n_train) + "_" + str(n_eval)
 
     def __get_datasets__():
-        datasets = lib_data.get_cifar10 (flatten=False, tr_indices=n_train, te_indices=n_eval, hess_indices=n_hess,
-                                         tr_classes=n_out, te_classes=n_out, hess_classes=n_out, one_hot=use_mse,
-                                         augmentations=False, visualise=True)
+        datasets = lib_data.get_cifar10(flatten=False, tr_indices=n_train, te_indices=n_eval, hess_indices=n_hess,
+                                        tr_classes=n_out, te_classes=n_out, hess_classes=n_out, one_hot=use_mse,
+                                        augmentations=False, visualise=True)
 
         return datasets
 
@@ -77,7 +75,7 @@ def train_model(hyp, datasets=None, resume=False, n_workers=8):
             use_DO = False
             use_BN = True
 
-            depth_name = str (int (1 + n_blocks * layers_per_block))
+            depth_name = str(int(1 + n_blocks * layers_per_block))
             model = modules.VGGNet(n_blocks, layers_per_block, base_width, use_DO=use_DO, use_BN=use_BN)
             model_name = f"VGG{depth_name}_base{base_width:d}"
             if use_DO:
@@ -96,7 +94,8 @@ def train_model(hyp, datasets=None, resume=False, n_workers=8):
             sc_conv = "Identity"
 
             depth_name = str(int(2 + n_blocks * layers_per_block * depth_per_layer))
-            model = modules.ResNet(n_blocks, layers_per_block, depth_per_layer, use_DO=use_DO, use_BN=use_BN, sc_conv=sc_conv)
+            model = modules.ResNet(n_blocks, layers_per_block, depth_per_layer, use_DO=use_DO, use_BN=use_BN,
+                                   sc_conv=sc_conv)
             model_name = f"ResNet{depth_name}_base{base_width:d}_{sc_conv}"
             if use_DO:
                 model_name += "_DO"
@@ -159,71 +158,71 @@ def train_model(hyp, datasets=None, resume=False, n_workers=8):
     # Callbacks
     def __get_cbs__(state, compute_hessian=False):
         cbs = []
-        cbs.append (callbacks.saveWeightsCB (save_weight_freq, grad=True))
+        cbs.append(callbacks.saveWeightsCB(save_weight_freq, grad=True))
 
         if compute_hessian:
-            hvpCB = callbacks.hvpCB (loss_fn=loss_fn, batches=(datasets[2].data[:n_hess], datasets[2].targets[:n_hess]),
-                                     save_freq=hess_freq, hess_bs=n_hess, state=state)
-            cbs.append (hvpCB)
-            specCB = callbacks.spectrumCB (n_eigs=20, n_evecs=10,
-                                           loss_fn=loss_fn, seed=seed, hvpCB=hvpCB, save_freq=hess_freq, verbose=False)
-            cbs.append (specCB)
+            hvpCB = callbacks.hvpCB(loss_fn=loss_fn, batches=(datasets[2].data[:n_hess], datasets[2].targets[:n_hess]),
+                                    save_freq=hess_freq, hess_bs=n_hess, state=state)
+            cbs.append(hvpCB)
+            specCB = callbacks.spectrumCB(n_eigs=20, n_evecs=10,
+                                          loss_fn=loss_fn, seed=seed, hvpCB=hvpCB, save_freq=hess_freq, verbose=False)
+            cbs.append(specCB)
 
-        esCB = callbacks.earlyStopCB (acc_threshold=0.999, cbs=None, min_eps=save_weight_freq, max_eps=n_epochs, conseq_eps=2,
-                                      final_cbs=[hvpCB, specCB], verbose=False, low_eps=max(save_weight_freq, 100), low_thresh=0.11, )
-        cbs.append (esCB)
+        esCB = callbacks.earlyStopCB(acc_threshold=0.999, cbs=None, min_eps=save_weight_freq, max_eps=max_epochs,
+                                     conseq_eps=2,
+                                     final_cbs=[hvpCB, specCB], verbose=False, low_eps=max(save_weight_freq, 100),
+                                     low_thresh=0.11, )
+        cbs.append(esCB)
         return cbs
 
     # -----------------------------------------------------------------------------------------------------------------------------
     # Train State
     @struct.dataclass
-    class Metrics (metrics.Collection):
+    class Metrics(metrics.Collection):
         accuracy: metrics.Accuracy
-        loss: metrics.Average.from_output ('loss')
+        loss: metrics.Average.from_output('loss')
 
-    class TrainState (train_state.TrainState):
+    class TrainState(train_state.TrainState):
         metrics: Metrics
         batch_stats: tp.Any
 
-    class TrainStateSAM (modules.TrainStateSAM):
+    class TrainStateSAM(modules.TrainStateSAM):
         metrics: Metrics
         batch_stats: tp.Any
 
     def create_train_state(model, optimizer, inputs, rng, option=""):
         """Creates an initial `TrainState`."""
         if option == "":
-            params = model.init (rng, jnp.ones_like (inputs[0][jnp.newaxis, :]))[
+            params = model.init(rng, jnp.ones_like(inputs[0][jnp.newaxis, :]))[
                 'params']  # initialize parameters by passing a template image
 
             tx = optimizer
-            return TrainState.create (
-                apply_fn=model.apply, params=params, tx=tx, metrics=Metrics.empty ())
+            return TrainState.create(
+                apply_fn=model.apply, params=params, tx=tx, metrics=Metrics.empty())
 
         elif option == "bn":
-            variables = model.init (rng, jnp.ones_like (
+            variables = model.init(rng, jnp.ones_like(
                 inputs[0][jnp.newaxis, :]))  # initialize parameters by passing a template image
             params = variables['params']
             batch_stats = variables['batch_stats']
 
             tx = optimizer
-            return TrainState.create (
+            return TrainState.create(
                 apply_fn=model.apply, params=params, tx=tx, batch_stats=batch_stats,
-                metrics=Metrics.empty ())
+                metrics=Metrics.empty())
 
         elif option == "sam":
-            variables = model.init (rng, jnp.ones_like (
+            variables = model.init(rng, jnp.ones_like(
                 inputs[0][jnp.newaxis, :]))  # initialize parameters by passing a template image
             params = variables['params']
             batch_stats = variables['batch_stats']
 
             tx = optimizer
-            return TrainStateSAM.create (
+            return TrainStateSAM.create(
                 apply_fn=model.apply, params=params, tx=tx, batch_stats=batch_stats,
-                metrics=Metrics.empty ())
+                metrics=Metrics.empty())
         else:
             raise NotImplementedError
-
-
 
     # -----------------------------------------------------------------------------------------------------------------------------
     # Training
@@ -236,49 +235,54 @@ def train_model(hyp, datasets=None, resume=False, n_workers=8):
     if datasets is None:
         datasets = __get_datasets__()
 
-    train_loader = lib_data.NumpyLoader (datasets[0], batch_size=bs, shuffle=True, num_workers=n_workers)
+    train_loader = lib_data.NumpyLoader(datasets[0], batch_size=bs, shuffle=True, num_workers=n_workers)
     for sample_batch in train_loader:
         break
 
-    test_loader = lib_data.NumpyLoader (datasets[1], batch_size=eval_bs, num_workers=n_workers)
+    test_loader = lib_data.NumpyLoader(datasets[1], batch_size=eval_bs, num_workers=n_workers)
     dataloaders = [train_loader, test_loader]
 
     model, model_name = __get_arch__(arch_name)
     model_name += "_seed" + str(seed)
 
-    optim, optim_name = __get_optim__ (warmup_steps, lr, b1, b2, b3, sam_type=sam_type, rho=sam_rho,
-                                       sync_period=sam_sync)
-    optim_name += f"_epochs{n_epochs}_bs{bs}"
+    optim, optim_name = __get_optim__(warmup_steps, lr, b1, b2, b3, sam_type=sam_type, rho=sam_rho,
+                                      sync_period=sam_sync)
+    # optim_name += f"_epochs{n_epochs}_bs{bs}"
+    optim_name += f"_bs{bs}"
 
     init_rng = jax.random.PRNGKey(seed)
     state = create_train_state(model, optim, sample_batch[0], init_rng, option=option)
     del init_rng  # Must not be used anymore.
 
-    cbs = __get_cbs__ (state, compute_hessian=compute_hessian)
-    cb_name_str = utils.get_callback_name_str (cbs)
-    cb_name_list = utils.get_callback_name_list (cbs)
+    cbs = __get_cbs__(state, compute_hessian=compute_hessian)
+    cb_name_str = utils.get_callback_name_str(cbs)
+    cb_name_list = utils.get_callback_name_list(cbs)
     # break
 
-    experiment_name = utils.get_now () + "_" + data_name + "_" + model_name + "_" + optim_name
+    experiment_name = utils.get_now() + "_" + data_name + "_" + model_name + "_" + optim_name
 
     out_str = ""
     try:
         if force_train:
             raise FileNotFoundError
-        experiment_name, lse = utils.find_latest_exp (experiment_name, n_epochs, save_freq=cb_freq,
-                                                      cbs=cb_name_list, unknown_lse=True, verbose=False)
-        metrics_history = utils.load_thing ("traj/" + experiment_name + "/metrics.pkl")
+        experiment_name, lse = utils.find_latest_exp_no_epoch(experiment_name, max_eps=max_epochs,
+                                                     cbs=cb_name_list, verbose=False)
+        metrics_history = utils.load_thing("traj/" + experiment_name + "/metrics.pkl")
         metrics_history['lse'] = [lse]
 
 
     except FileNotFoundError:
-        metrics_history = training.train_model (state, model, loss_fn, metrics_history, n_epochs, dataloaders, \
-                                                experiment_name, cbs, option=option, force_fb=force_fb, tqdm_over_epochs=tqdm_freq)
+        if load_only:
+            return f"{experiment_name} not found. ", {}, datasets
 
-    out_str += f"tr_acc: {metrics_history['train_accuracy'][-1]:0%}, te_acc: {metrics_history['test_accuracy'][-1]:0%}"
+        metrics_history = training.train_model(state, model, loss_fn, metrics_history, max_epochs, dataloaders, \
+                                               experiment_name, cbs, option=option, force_fb=force_fb,
+                                               tqdm_over_epochs=tqdm_freq)
+
+    out_str += f"tr_acc: {metrics_history['train_accuracy'][-1]:0.2%}, te_acc: {metrics_history['test_accuracy'][-1]:0.2%}"
     if compute_hessian:
-        eigvals = utils.load_thing ("traj/" + experiment_name + "/eigvals.pkl")
+        eigvals = utils.load_thing("traj/" + experiment_name + "/eigvals.pkl")
         metrics_history['eigvals'] = eigvals
-        out_str += f"sharp: {metrics_history['eigvals'][-1][0]}"
+        out_str += f", sharp: {metrics_history['eigvals'][-1][0]:.3E}"
 
     return out_str, metrics_history, datasets

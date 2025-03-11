@@ -34,8 +34,8 @@ def do_job(tasks_to_accomplish, tasks_that_are_done, job):
             # print(int(current_process().name[-1:]))
             process_id = int(current_process().name[-1:])
             os.environ['CUDA_VISIBLE_DEVICES'] = str(process_id-1)
-            os.environ['XLA_PYTHON_CLIENT_MEM_FRACTION'] = '0.75'
-            out_str, mh, datasets = job(task, datasets, resume=False)
+            os.environ['XLA_PYTHON_CLIENT_MEM_FRACTION'] = '0.9'
+            out_str, mh, datasets = job(task, datasets, resume=False, load_only=False)
             print(out_str)
             time.sleep(0.2)
 
@@ -48,12 +48,20 @@ def do_job(tasks_to_accomplish, tasks_that_are_done, job):
                 message to task_that_are_done queue
             '''
             # print(task)
-            out = str(task) + f' is done by {current_process().name}; test accuracy {mh["test_accuracy"][-1]:%}; lse {mh["lse"]};'
+            out = str(task) + f' is done by {current_process().name}; '
+            try:
+                out += f'test accuracy {mh["test_accuracy"][-1]:%}; lse {mh["lse"]};'
+            except KeyError:
+                pass
+
             try:
                 ind = np.where(np.array(mh['train_accuracy'][:])>0.999)[0][0]
                 out += f" first_99_acc: {mh['test_accuracy'][ind]:%}; cross epoch:[{ind}];"
             except IndexError:
                 out += f" first_99_acc: na; cross epoch:[na];"
+            except KeyError:
+                pass
+
             tasks_that_are_done.put(out)
             time.sleep(.5)
     return True
@@ -67,26 +75,37 @@ def main():
     ]
 
     bs_list = [
-        # 4,
-        # 16,
+        4,
+        16,
         64,
-        # 256,
+        256,
         1024,
-        # 5120
+        5120
     ]
 
     sgd_hp_list = [
+        # DO NEW -0.1 experiments
+        (5e-3, 0., 0.99, -0.1),  # rms-UB
+        (5e-3, 0.9, 0.99, -0.1),  # adam-UB
+
+        # FIX ALL EXISTING
         (0.1, 0., 0., 0.),  # sgd
         (5e-3, 0., 0.99, 0.),  # rms
         (5e-3, 0., 0.99, -1.),  # rms-UB
-        (5e-3, 0., 0.9, 0.),  # rms
-        (5e-3, 0., 0.9, -1.),  # rms-UB
         (5e-3, 0.9, 0.99, 0.),  # adam
         (5e-3, 0.9, 0.99, -1.),  # adam-UB
-        (5e-3, 0.9, 0.9, 0.),  # adam
-        (5e-3, 0.9, 0.9, -1.),  # adam-UB
-    ]
 
+        # DO -10
+        (5e-3, 0., 0.99, -10.),  # rms-UB
+        (5e-3, 0.9, 0.99, -10.),  # adam-UB
+    ]
+    '''
+    RETIRED HPS
+    (5e-3, 0., 0.9, 0.),  # rms
+    (5e-3, 0., 0.9, -1.),  # rms-UB
+    (5e-3, 0.9, 0.9, 0.),  # adam
+    (5e-3, 0.9, 0.9, -1.),  # adam-UB    
+    '''
 
     # sam_hp_list += list(itertools.product(*[sam_type_list, sam_rho_list, sam_sync_list]))
     # sam_hp_list = sorted(sam_hp_list, key=lambda x: (x[2], x[1],)) # do algs first (unsorted) then rhos and then sync
@@ -94,7 +113,7 @@ def main():
     seed_list = [x for x in range(5)]
 
     from train_scripts.cifar5k_ub_family_train import train_model
-    s = [seed_list, arch_list, bs_list, sgd_hp_list]
+    s = [sgd_hp_list, seed_list, arch_list, bs_list]
     hyp_list = list(itertools.product(*s))
 
     number_of_tasks = len(hyp_list)

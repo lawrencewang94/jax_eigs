@@ -386,7 +386,7 @@ class earlyStopCB(Callback):
         if self.sfw:
             self.name += "_save"
 
-        self.final_epoch = max_eps
+        self.final_epoch = None
         self.final_model = None
         self.accs = np.zeros((low_eps))
         self.low_thresh = low_thresh
@@ -446,12 +446,17 @@ class earlyStopCB(Callback):
             return 'break'
 
     def save(self, error=False):
-        utils.save_thing(np.zeros(1), self.save_path + f"/early_stop{self.final_epoch}.pkl")
-        if self.final_state is not None and self.sfw:
-            utils.save_weights(self.final_state, self.save_path + "/w" + str(self.final_epoch) + ".pkl")
+        if self.final_epoch is not None:
+            utils.save_thing(np.zeros(1), self.save_path + f"/early_stop{self.final_epoch}.pkl")
+            if self.final_state is not None and self.sfw:
+                utils.save_weights(self.final_state, self.save_path + "/w" + str(self.final_epoch) + ".pkl")
 
-        if error:
-            utils.save_thing(np.zeros(1), self.save_path + f"/error{self.final_epoch}.pkl")
+            if error:
+                utils.save_thing(np.zeros(1), self.save_path + f"/error{self.final_epoch}.pkl")
+        else:
+            utils.save_thing(np.zeros(1), self.save_path + f"/no_converge{self.max_eps}.pkl")
+            if error:
+                utils.save_thing(np.zeros(1), self.save_path + f"/error_nc_{self.max_eps}.pkl")
 
 
 # Keeping but not refactored to flax/optax yet

@@ -232,6 +232,76 @@ def find_latest_exp(name, n_epochs, save_freq=1, cbs=None, verbose=False, unknow
     raise FileNotFoundError
 
 
+def find_latest_exp_no_epoch(name, cbs=None, verbose=False, max_eps=0,
+                    resume=False, resume_n=0, traj_prefix='traj/'):
+    # save code as above, but assuming always no LSE, and remove n_epochs and save_freq as inputs
+    time_str = name[:11]
+    exp_details = name[11:]
+
+    folder_list = glob.glob(f"{traj_prefix}*{exp_details}")
+    folder_list.sort(reverse=True) # latest experiments first
+    len_folder_skip = len(traj_prefix) # skipping the folder string
+
+    if verbose: print(folder_list)
+
+    # check folders
+    for folder in folder_list:
+        # Reject if callbacks do not match
+        if cbs is not None:
+            # If using callbacks file
+            if os.path.exists(folder+"/callbacks.pkl"):
+                cb_name_load = load_thing(folder+"/callbacks.pkl")
+
+            # If not using callbacks file
+            else:
+                len_skip = 5+12+len(exp_details)+1 - 1
+                if verbose: print("no cb file", folder)
+                # reject if folder has no CBs
+                if len(folder) < len_skip + 1:
+                    continue
+                cb_name_load = folder[len_skip:] # traj/ + date + exp_name = 5+12+len(exp_name) + 1
+
+            # reject if CBs from list does not exist in the string
+            cb_fit = compare_cbs(cbs, cb_name_load)
+            if not cb_fit:
+                if verbose: print(cbs, cb_name_load)
+                continue
+
+        # If not rejected by CBs, check last weight file exists and return
+        # print("unknown lse")
+        es_files = glob.glob(folder+"/early_stop*")
+
+        if len(es_files) > 0:
+            # print(es_files[0])
+            last_save_epoch = int(es_files[0].split("/")[-1][10:-4])
+            return folder[len_folder_skip:], last_save_epoch
+        else:
+            nc_files = glob.glob(folder + "/no_converge*")
+            if len(nc_files) > 0:
+                last_save_epoch = int(nc_files[0].split("/")[-1][11:-4])
+                if last_save_epoch >= max_eps:
+                    return folder[len_folder_skip:], last_save_epoch
+                else:
+                    if resume:
+                        print("I'm here!", folder)
+                        list_of_files = glob.glob(folder+"/w*")  # * means all if need specific format then *.csv
+                        list_of_lses = [int(x.split("/")[-1][1:-4]) for x in list_of_files]
+                        # latest_file = max(list_of_files, key=extract_number)
+                        # print(list_of_lses)
+                        if max(list_of_lses)>resume_n:
+                            return folder[len_folder_skip:], max(list_of_lses)
+                        else:
+                            if verbose: print("training ended too early", max(list_of_lses))
+                    else:
+                        if verbose: print("no lse/resume found")
+
+            else:
+                continue
+
+    raise FileNotFoundError
+
+
+
 def thin_pickle(path, n_pl=None, pf=None, has0=True):
 
     thing = load_thing(path)
