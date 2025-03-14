@@ -29,7 +29,8 @@ def setup_logging(log_file):
     """
 
     #remove existing file
-    os.remove(log_file)
+    if os.path.exists(log_file):
+        os.remove(log_file)
 
     logging.basicConfig(
         filename=log_file,
@@ -58,7 +59,7 @@ def do_job(tasks_to_accomplish, tasks_that_are_done, job):
             task_id, task_hyps = tasks_to_accomplish.get_nowait()
             # print(current_process().name)
             # print(int(current_process().name[-1:]))
-            out_str, mh, supplementary = job(task_hyps, supplementary, resume=False, load_only=True)
+            out_str, mh, supplementary = job(task_hyps, supplementary, resume=False, load_only=False)
             time.sleep(0.5)
 
             out = f"task:{task_id}, process:{process_id}, {task_hyps}; "
@@ -96,49 +97,30 @@ def main():
     ### Flexible HPs
 
     arch_list = [
-        'vgg',
         'resnet',
     ]
 
     bs_list = [
-        4,
         16,
-        64,
-        256,
-        1024,
-        5120
     ]
 
     sgd_hp_list = [
-        # DO NEW -0.1 experiments
-        (5e-3, 0., 0.99, -0.1),  # rms-UB
-        (5e-3, 0.9, 0.99, -0.1),  # adam-UB
+        (6e-3, 0., 0.99, 0.0),  # baseline rms
 
-        # FIX ALL EXISTING
-        (0.1, 0., 0., 0.),  # sgd
-        (5e-3, 0., 0.99, 0.),  # rms
-        (5e-3, 0., 0.99, -1.),  # rms-UB
-        (5e-3, 0.9, 0.99, 0.),  # adam
-        (5e-3, 0.9, 0.99, -1.),  # adam-UB
+        (6e-3, 0., 0.99, -1e+3),  # rms-UB
+        (6e-3, 0., 0.99, -1e+2),  # rms-UB
+        (6e-3, 0., 0.99, -1e+1),  # rms-UB
+        (6e-3, 0., 0.99, -1e-0),  # rms-UB
+        (6e-3, 0., 0.99, -1e-1),  # rms-UB
+        (6e-3, 0., 0.99, -1e-2),  # rms-UB
+        (6e-3, 0., 0.99, -1e-3),  # rms-UB
 
-        # DO -10
-        (5e-3, 0., 0.99, -10.),  # rms-UB
-        (5e-3, 0.9, 0.99, -10.),  # adam-UB
     ]
-    '''
-    RETIRED HPS
-    (5e-3, 0., 0.9, 0.),  # rms
-    (5e-3, 0., 0.9, -1.),  # rms-UB
-    (5e-3, 0.9, 0.9, 0.),  # adam
-    (5e-3, 0.9, 0.9, -1.),  # adam-UB    
-    '''
 
-    # sam_hp_list += list(itertools.product(*[sam_type_list, sam_rho_list, sam_sync_list]))
-    # sam_hp_list = sorted(sam_hp_list, key=lambda x: (x[2], x[1],)) # do algs first (unsorted) then rhos and then sync
 
-    seed_list = [x for x in range(5)]
+    seed_list = [x for x in range(3)]
 
-    from train_scripts.cifar5k_ub_family_train import train_model
+    from train_scripts.cifar5k_rms_tune_train import train_model
     s = [seed_list, arch_list, bs_list, sgd_hp_list]
     hyp_list = list(itertools.product(*s))
 

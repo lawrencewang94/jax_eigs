@@ -12,8 +12,6 @@ import contextlib
 import io
 import itertools
 import sys
-import logging
-import argparse
 
 @contextlib.contextmanager
 def nostdout():
@@ -22,28 +20,8 @@ def nostdout():
     yield
     sys.stdout = save_stdout
 
-
-def setup_logging(log_file):
-    """
-    Configures logging settings to write logs to the specified file.
-    """
-
-    #remove existing file
-    os.remove(log_file)
-
-    logging.basicConfig(
-        filename=log_file,
-        filemode='a',  # Append mode
-        # format='%(asctime)s - %(levelname)s - %(processName)s - %(message)s',
-        format='%(message)s',
-        level=logging.WARNING
-    )
-
-    print(f"Logging initialized. Writing logs to {log_file}")
-
-
 def do_job(tasks_to_accomplish, tasks_that_are_done, job):
-    supplementary = {}
+    datasets = None
     process_id = int(current_process().name[-1:])
     os.environ['CUDA_VISIBLE_DEVICES'] = str(process_id - 1)
     os.environ['XLA_PYTHON_CLIENT_MEM_FRACTION'] = '0.9'
@@ -58,43 +36,39 @@ def do_job(tasks_to_accomplish, tasks_that_are_done, job):
             task_id, task_hyps = tasks_to_accomplish.get_nowait()
             # print(current_process().name)
             # print(int(current_process().name[-1:]))
-            out_str, mh, supplementary = job(task_hyps, supplementary, resume=False, load_only=True)
+            out_str, mh, datasets = job(task_hyps, datasets, resume=False, load_only=True)
+            print(f"task:{task_id}, process:{process_id}, {out_str}")
             time.sleep(0.5)
 
-            out = f"task:{task_id}, process:{process_id}, {task_hyps}; "
+            out = str(task_hyps) + f' is done by {current_process().name}; '
 
-            if 'test_accuracy' in mh and 'lse' in mh:
+            try:
                 out += f'test accuracy {mh["test_accuracy"][-1]:%}; lse {mh["lse"]};'
+            except KeyError:
+                pass
 
-            if 'train_accuracy' in mh:
-                inds = np.where(np.array(mh['train_accuracy'][:])>0.999)[0]
-                if len(inds) > 0:
-                    ind = inds[0]
-                    out += f" first_99_acc: {mh['test_accuracy'][ind]:%}; cross epoch:[{ind}];"
-
-            # print(f"task:{task_id}, process:{process_id}, {task_hyps}")
-            # print(out)
-            logging.warning(out)
-            # tasks_that_are_done.put(out)
+            try:
+                ind = np.where(np.array(mh['train_accuracy'][:])>0.999)[0][0]
+                out += f" first_99_acc: {mh['test_accuracy'][ind]:%}; cross epoch:[{ind}];"
+            except IndexError:
+                out += f" first_99_acc: na; cross epoch:[na];"
+            except KeyError:
+                pass
+            # print("out", out)
+            tasks_that_are_done.put(out)
             time.sleep(.5)
+            del mh
 
         except queue.Empty:
+            del datasets
+            del mh
             break
 
     print(f"{current_process().name} has exited.")
     return True
 
 def main():
-
-    parser = argparse.ArgumentParser(description="Run multiprocessing job with optional logging path.")
-    parser.add_argument("--log", type=str, default="txt/training_log.txt",
-                        help="Specify the log file path (default: training_log.txt)")
-    args = parser.parse_args()
-
-    setup_logging(args.log)
-
     ### Flexible HPs
-
     arch_list = [
         'vgg',
         'resnet',
@@ -139,46 +113,27 @@ def main():
     seed_list = [x for x in range(5)]
 
     from train_scripts.cifar5k_ub_family_train import train_model
-    s = [seed_list, arch_list, bs_list, sgd_hp_list]
+    s = [sgd_hp_list, seed_list, arch_list, bs_list]
     hyp_list = list(itertools.product(*s))
 
     number_of_tasks = len(hyp_list)
-    print(f"{number_of_tasks} tasks to process")
-    logging.warning(f"{number_of_tasks} tasks to process")
-
-    # number_of_processes = 4
+    print(number_of_tasks, "tasks")
+    number_of_processes = 2
     # process_ids = range(number_of_processes)
     process_ids = [2, 3]
-    tasks_to_accomplish = Queue()
-    tasks_that_are_done = Queue()
-    processes = []
-
-    job = train_model
-
-    for i in range(number_of_tasks):
-        tasks_to_accomplish.put((i, hyp_list[i]))
 
     print("--- Starting Processes ---")
+    results = []
+
     # creating processes
-    for w in process_ids:
-        p = Process(target=do_job, args=(tasks_to_accomplish, tasks_that_are_done, job), name=f"Process-N{w+1}")
-        processes.append(p)
+    with Pool(processes=number_of_processes) as pool:
+        for task_i, task in enumerate(hyp_list):
+            result = pool.apply_async(do_job, (task,))  # Non-blocking execution
+            results.append(result)
 
-    for p in processes:
-        print(f"Starting: {p.name}")
-        p.start()
-        time.sleep(0.5)
+    for result in results:
+        print(result.get())  # This blocks until the result is ready
 
-    print("--- Joining Processes ---")
-    # completing process
-    for p in processes:
-        p.join()
-        print(f"{p.name} joined. ")
-
-    # print("--- Flushing Outputs ---")
-    # # print the output
-    # while not tasks_that_are_done.empty():
-    #     print(tasks_that_are_done.get())
 
     return True
 

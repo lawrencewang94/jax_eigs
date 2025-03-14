@@ -327,6 +327,8 @@ def train_model(state, model, loss_fn, metrics_history, n_epochs, loaders, name,
     for cb in callbacks:
         cb.save()
 
+    print("Training complete", name)
+
     return metrics_history
 
 

@@ -4,6 +4,7 @@ import os
 import queue # imported for using queue.Empty exception
 import numpy as np
 import utils
+import optuna
 
 import warnings
 warnings.simplefilter(action='ignore', category=(FutureWarning, RuntimeWarning))
@@ -75,7 +76,7 @@ def do_job(tasks_to_accomplish, tasks_that_are_done, job):
             # print(f"task:{task_id}, process:{process_id}, {task_hyps}")
             # print(out)
             logging.warning(out)
-            # tasks_that_are_done.put(out)
+            tasks_that_are_done.put(out)
             time.sleep(.5)
 
         except queue.Empty:
@@ -96,17 +97,11 @@ def main():
     ### Flexible HPs
 
     arch_list = [
-        'vgg',
         'resnet',
     ]
 
     bs_list = [
-        4,
         16,
-        64,
-        256,
-        1024,
-        5120
     ]
 
     sgd_hp_list = [
@@ -139,7 +134,7 @@ def main():
     seed_list = [x for x in range(5)]
 
     from train_scripts.cifar5k_ub_family_train import train_model
-    s = [seed_list, arch_list, bs_list, sgd_hp_list]
+    s = [arch_list, bs_list, sgd_hp_list, seed_list]
     hyp_list = list(itertools.product(*s))
 
     number_of_tasks = len(hyp_list)
@@ -175,10 +170,10 @@ def main():
         p.join()
         print(f"{p.name} joined. ")
 
-    # print("--- Flushing Outputs ---")
-    # # print the output
-    # while not tasks_that_are_done.empty():
-    #     print(tasks_that_are_done.get())
+    print("--- Flushing Outputs ---")
+    # print the output
+    while not tasks_that_are_done.empty():
+        print(tasks_that_are_done.get())
 
     return True
 

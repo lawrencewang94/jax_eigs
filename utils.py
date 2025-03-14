@@ -5,7 +5,7 @@ import numpy as np
 import optax
 import torch
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 import typing as tp
 # import treex as tx
 import jax.tree_util as tu
@@ -42,6 +42,12 @@ def light_colours(i):
 def get_now():
     now = datetime.now()
     dt_string = now.strftime("%y%m%d-%H%M")
+    folders = glob.glob(f"traj/{dt_string}*")
+
+    while len(folders) > 0:
+        now = now + timedelta(minutes=1)
+        dt_string = now.strftime("%y%m%d-%H%M")
+        folders = glob.glob(f"traj/{dt_string}*")
     return dt_string
 
 
