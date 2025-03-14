@@ -515,78 +515,7 @@ class hvlines():
 
 from mpl_toolkits.mplot3d import Axes3D
 import random
-
-def vis_landscape(loss_fn, order=0, xmin=-10, xmax=10, ymin=-10, ymax=10, n_points=100, scale='linear', fig=None, ax=None):
-
-    if fig is None:
-        assert ax is None
-        fig = plt.figure()
-        ax = fig.add_subplot(111, projection='3d')
-
-    xs = jnp.linspace(xmin, xmax, n_points)
-    ys = jnp.linspace(ymin, ymax, n_points)
-    X, Y = np.meshgrid(xs, ys)
-    if order == 0:
-        zs = np.array(loss_fn(np.ravel(X), np.ravel(Y)))
-    elif order == 1:
-        zs = np.array(jax.vmap(jax.grad(loss_fn, argnums=[0, 1]))(np.ravel(X), np.ravel(Y)))
-        zs = np.linalg.norm(zs, axis=0)
-    elif order == 2:
-        zs = np.array(jax.vmap(jax.hessian(loss_fn, argnums=[0, 1]))(np.ravel(X), np.ravel(Y)))
-        zs = np.max(zs, axis=(0, 1))
-    else:
-        raise NotImplementedError
-
-    if scale == 'log':
-        zs = np.log(zs)
-    Z = zs.reshape(X.shape)
-
-    ax.plot_surface(X, Y, Z)
-
-    ax.set_xlabel('Sharp Dir')
-    ax.set_ylabel('Flat Dir')
-    ax.set_zlabel('Loss - ' + scale)
-
-    plt.show()
-
-def vis_landscape_lgh(loss_fn, xmin=-2, xmax=2, ymin=-2, ymax=2, n_points=100, scale='linear', fig=None, ax=None):
-
-    names = ['Loss', 'Grad', 'Hess']
-    if fig is None:
-        assert ax is None
-        fig = plt.figure(figsize=plt.figaspect(0.33), layout='constrained')
-        # fig = plt.figure()
-        ax_l = fig.add_subplot(1, 3, 1, projection='3d')
-        ax_g = fig.add_subplot(1, 3, 2, projection='3d')
-        ax_h = fig.add_subplot(1, 3, 3, projection='3d')
-
-    xs = jnp.linspace(xmin, xmax, n_points)
-    ys = jnp.linspace(ymin, ymax, n_points)
-    X, Y = np.meshgrid(xs, ys)
-    zs_l = np.array(loss_fn(np.ravel(X), np.ravel(Y)))
-    zs_g = np.array(jax.vmap(jax.grad(loss_fn, argnums=[0, 1]))(np.ravel(X), np.ravel(Y)))
-    zs_g = np.linalg.norm(zs_g, axis=0)
-    zs_h = np.array(jax.vmap(jax.hessian(loss_fn, argnums=[0, 1]))(np.ravel(X), np.ravel(Y)))
-    zs_h = np.max(zs_h, axis=(0, 1))
-
-    axs = [ax_l, ax_g, ax_h]
-    zs = [zs_l, zs_g, zs_h]
-    for i in range(3):
-        z = np.log(zs[i]) if scale == 'log' else zs[i]
-        ax = axs[i]
-        Z = z.reshape(X.shape)
-        ax.plot_surface(X, Y, Z)
-
-        ax.set_xlabel('Sharp Dir')
-        ax.set_ylabel('Flat Dir')
-        # ax.set_zlabel(names[i] + ' - ' + scale)
-        ax.set_title(names[i] + " - " + scale)
-        ax.view_init(elev=60, azim=45, roll=15)
-
-    plt.show()
-
-
-def vis_landscape_lgh_q(loss_fn, xmin=-2, xmax=2, ymin=-2, ymax=2, yscale=False, n_points=20, scale='linear', do_g = True, do_h = True, fig=None, axs=None):
+def vis_landscape(loss_fn, xmin=-2, xmax=2, ymin=-2, ymax=2, yscale=False, n_points=20, scale='linear', do_g = True, do_h = True, fig=None, axs=None):
 
     names = ['Loss', 'Grad', 'Hess']
     if fig is None:
@@ -597,60 +526,63 @@ def vis_landscape_lgh_q(loss_fn, xmin=-2, xmax=2, ymin=-2, ymax=2, yscale=False,
         ax_g = fig.add_subplot(1, 3, 2,)
         ax_h = fig.add_subplot(1, 3, 3,)
     else:
-    	ax_l, ax_g, ax_h = axs
+        ax_l, ax_g, ax_h = axs
 
     xs = jnp.linspace(xmin, xmax, n_points)
     ys = jnp.linspace(ymin, ymax, n_points)
     X, Y = np.meshgrid(xs, ys)
-    zs_l = np.array(loss_fn(np.ravel(X), np.ravel(Y)))
+    loss_inputs = np.concatenate([np.ravel(X)[:, np.newaxis], np.ravel(Y)[:, np.newaxis]], axis=1)
+    zs_l = np.array(loss_fn(loss_inputs))
 
-    zs_g = np.array(jax.vmap(jax.grad(loss_fn, argnums=[0, 1]))(np.ravel(X), np.ravel(Y)))
-    u_g = zs_g[0].reshape(X.shape)
-    v_g = zs_g[1].reshape(X.shape)
+    zs_g = np.array(jax.vmap(jax.grad(loss_fn))(loss_inputs))
+    u_g = zs_g[:, 0].reshape(X.shape)
+    v_g = zs_g[:, 1].reshape(X.shape)
     w_g = np.zeros_like(X)
-    zs_g = np.linalg.norm(zs_g, axis=0).reshape(X.shape)
+    zs_g = np.linalg.norm(zs_g, axis=1).reshape(X.shape)
     u_g /= zs_g
     v_g /= zs_g
+
     if yscale:
         sharp_scale = np.mean(np.abs(u_g))
         flat_scale = np.mean(np.abs(v_g))
         g_scale = sharp_scale / flat_scale
         v_g *= g_scale
-        g_norm = np.linalg.norm(np.concatenate([u_g[np.newaxis, :], v_g[np.newaxis, :]], axis=0), axis=0)
+        g_norm = np.linalg.norm(np.concatenate([u_g[:, np.newaxis,], v_g[:, np.newaxis]], axis=1), axis=1)
         u_g /= g_norm
         v_g /= g_norm
     else:
         rangex = xmax-xmin
         rangey = ymax-ymin
         v_g *= rangex/rangey
-        g_norm = np.linalg.norm(np.concatenate([u_g[np.newaxis, :], v_g[np.newaxis, :]], axis=0), axis=0)
+        g_norm = np.linalg.norm(np.concatenate([u_g[:, np.newaxis,], v_g[:, np.newaxis,]], axis=1), axis=1)
         u_g /= g_norm
         v_g /= g_norm
 
-    zs_h = np.array(jax.vmap(jax.hessian(loss_fn, argnums=[0, 1]))(np.ravel(X), np.ravel(Y)))
-    s, v = jax.vmap(jnp.linalg.eigh)(zs_h.T)
+    zs_h = np.array(jax.vmap(jax.hessian(loss_fn))(loss_inputs))
+    s, v = jax.vmap(jnp.linalg.eigh)(zs_h)  # why was this transposed?
     eigv_inds = np.argmax(s, axis=1)
     # eigvs = np.array([v[i, :, eigv_inds[i]] for i in range(len(s))])
     eigvs = v[:, :, 1].copy() # eigvs are sorted
     # print(v.shape, eigv_inds.shape, s.shape, eigvs.shape)
     u_h = eigvs[:, 0].reshape(X.shape)*-np.sign(X)
     v_h = eigvs[:, 1].reshape(X.shape)*-np.sign(X)
+
     if yscale:
         sharp_scale = np.mean(np.abs(u_h))
         flat_scale = np.mean(np.abs(v_h))
         h_scale = sharp_scale / flat_scale
         v_h *= h_scale
-        h_norm = np.linalg.norm(np.concatenate([u_h[np.newaxis, :], v_h[np.newaxis, :]], axis=0), axis=0)
+        h_norm = np.linalg.norm(np.concatenate([u_h[:, np.newaxis,], v_h[:, np.newaxis,]], axis=1), axis=1)
         u_h /= h_norm
         v_h /= h_norm
+
     else:
         rangex = xmax-xmin
         rangey = ymax-ymin
         v_h *= rangex/rangey
-        h_norm = np.linalg.norm(np.concatenate([u_h[np.newaxis, :], v_h[np.newaxis, :]], axis=0), axis=0)
+        h_norm = np.linalg.norm(np.concatenate([u_h[:, np.newaxis,], v_h[:, np.newaxis,]], axis=1), axis=1)
         u_h /= h_norm
         v_h /= h_norm
-
 
     zs_l = np.log(zs_l) if scale == 'log' else zs_l
     ax_l.plot_surface(X, Y, zs_l.reshape(X.shape), color='k', alpha=0.8)
@@ -681,7 +613,6 @@ def vis_landscape_lgh_q(loss_fn, xmin=-2, xmax=2, ymin=-2, ymax=2, yscale=False,
             ax_g.axhline(y=0, c='k', linestyle='dashed', linewidth=0.2)
         if do_h:
             ax_h.axhline(y=0, c='k', linestyle='dashed', linewidth=0.2)
-
 
     axs = [ax_l, ax_g, ax_h]
     # plt.show()

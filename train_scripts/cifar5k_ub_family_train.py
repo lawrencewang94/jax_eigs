@@ -7,6 +7,7 @@ def train_model(hyp, supplementary=None, resume=False, load_only=False, n_worker
     import jax.numpy as jnp
     from flax import linen as nn  # Linen API
     import optax
+    import torch
 
     import lib_data
     import utils
@@ -279,9 +280,12 @@ def train_model(hyp, supplementary=None, resume=False, load_only=False, n_worker
                                           sync_period=sam_sync, name_only=False)
         optim_name += f"_bs{bs}"
 
+        torch.manual_seed(seed) # set seed for pytorch loader
         train_loader = lib_data.NumpyLoader(datasets[0], batch_size=bs, shuffle=True, num_workers=n_workers)
         for sample_batch in train_loader:
             break
+
+        print("reproducibility check, first sample", sample_batch.ravel()[0])
 
         test_loader = lib_data.NumpyLoader(datasets[1], batch_size=eval_bs, num_workers=n_workers)
         dataloaders = [train_loader, test_loader]
