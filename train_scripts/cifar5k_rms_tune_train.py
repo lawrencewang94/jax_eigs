@@ -7,6 +7,8 @@ def train_model(hyp, supplementary=None, resume=False, load_only=False, n_worker
     import jax.numpy as jnp
     from flax import linen as nn  # Linen API
     import optax
+    import torch
+    import numpy as np
 
     import lib_data
     import utils
@@ -279,9 +281,16 @@ def train_model(hyp, supplementary=None, resume=False, load_only=False, n_worker
                                           sync_period=sam_sync, name_only=False)
         optim_name += f"_bs{bs}"
 
+        torch.manual_seed(seed)
         train_loader = lib_data.NumpyLoader(datasets[0], batch_size=bs, shuffle=True, num_workers=n_workers)
         for sample_batch in train_loader:
             break
+
+        if f'first_sample{seed}' in supplementary:
+            assert supplementary[f'first_sample{seed}'] == np.array(sample_batch[0]).ravel()[0]
+        else:
+            supplementary[f'first_sample{seed}'] = np.array(sample_batch[0]).ravel()[0]
+            # print(f'first_sample_seed:{seed}, value:{np.array(sample_batch[0]).ravel()[0]}')
 
         test_loader = lib_data.NumpyLoader(datasets[1], batch_size=eval_bs, num_workers=n_workers)
         dataloaders = [train_loader, test_loader]

@@ -104,18 +104,32 @@ def main():
         16,
     ]
 
-    sgd_hp_list = [
-        (6e-3, 0., 0.99, 0.0),  # baseline rms
+    sgd_hp_list = []
+    for i in range(1, 10):
+        sgd_hp_list.append((4e-3, 0., 0.99, -utils.signif(i * 0.1, 3)))
+    for i in range(1, 11):
+        sgd_hp_list.append((4e-3, 0., 0.99, -utils.signif(i * 1., 3)))
 
-        (6e-3, 0., 0.99, -1e+3),  # rms-UB
-        (6e-3, 0., 0.99, -1e+2),  # rms-UB
-        (6e-3, 0., 0.99, -1e+1),  # rms-UB
-        (6e-3, 0., 0.99, -1e-0),  # rms-UB
-        (6e-3, 0., 0.99, -1e-1),  # rms-UB
-        (6e-3, 0., 0.99, -1e-2),  # rms-UB
-        (6e-3, 0., 0.99, -1e-3),  # rms-UB
 
-    ]
+    # sgd_hp_list = [
+    #     (4e-3, 0., 0.99, 0.0),  # baseline rms # tunes to 0.004 or 0.005
+    #     # (4e-3, 0., 0.99, 0.0),  # baseline rms # tunes to 0.004 or 0.005
+    # ]
+
+    # sgd_hp_list = [
+
+        # (6e-3, 0., 0.99, 0.0),  # baseline rms
+
+        #
+        # (6e-3, 0., 0.99, -1e+3),  # rms-UB
+        # (6e-3, 0., 0.99, -1e+2),  # rms-UB
+        # (6e-3, 0., 0.99, -1e+1),  # rms-UB
+        # (6e-3, 0., 0.99, -1e-0),  # rms-UB
+        # (6e-3, 0., 0.99, -1e-1),  # rms-UB
+        # (6e-3, 0., 0.99, -1e-2),  # rms-UB
+        # (6e-3, 0., 0.99, -1e-3),  # rms-UB
+
+    # ]
 
 
     seed_list = [x for x in range(3)]
@@ -128,9 +142,9 @@ def main():
     print(f"{number_of_tasks} tasks to process")
     logging.warning(f"{number_of_tasks} tasks to process")
 
-    # number_of_processes = 4
-    # process_ids = range(number_of_processes)
-    process_ids = [2, 3]
+    number_of_processes = 4
+    process_ids = range(number_of_processes)
+    # process_ids = [2, 3]
     tasks_to_accomplish = Queue()
     tasks_that_are_done = Queue()
     processes = []
