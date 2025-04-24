@@ -17,7 +17,7 @@ def tree_slice(tree, start_ind, slice_size):
 
 
 # params, batch, det -> loss
-def get_loss_wrap(state, loss_fn):
+def get_loss_wrap(state, loss_fn, bn=True):
     """
     Wraps the loss objective to create a function that computes the loss taking the model and data(batch) as inputs.
     ---
@@ -25,11 +25,17 @@ def get_loss_wrap(state, loss_fn):
     ---
     function: (model, batch) -> loss;
     """
-    def loss_wrap(params, batch, train=False):
+    def loss_wrap_bn(params, batch, train=False):
         inputs, targets = batch
         preds = state.apply_fn({'params':params, 'batch_stats':state.batch_stats}, inputs, train=False)
         return loss_fn(preds, batch[1]).mean()
-    return loss_wrap
+
+    def loss_wrap(params, batch, train=False):
+        inputs, targets = batch
+        preds = state.apply_fn({'params': params}, inputs, train=False)
+        return loss_fn(preds, batch[1]).mean()
+
+    return loss_wrap_bn if bn else loss_wrap
 
 
 def hvp_w(w, v, get_loss):

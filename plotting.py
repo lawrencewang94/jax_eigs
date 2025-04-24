@@ -515,7 +515,7 @@ class hvlines():
 
 from mpl_toolkits.mplot3d import Axes3D
 import random
-def vis_landscape(loss_fn, xmin=-2, xmax=2, ymin=-2, ymax=2, yscale=False, n_points=20, scale='linear', do_g = True, do_h = True, fig=None, axs=None):
+def vis_landscape(loss_fn, xmin=-2, xmax=2, ymin=-2, ymax=2, yscale=False, n_points=20, scale_fn=lambda x:x, do_g = True, do_h = True, fig=None, axs=None):
 
     names = ['Loss', 'Grad', 'Hess']
     if fig is None:
@@ -584,8 +584,9 @@ def vis_landscape(loss_fn, xmin=-2, xmax=2, ymin=-2, ymax=2, yscale=False, n_poi
         u_h /= h_norm
         v_h /= h_norm
 
-    zs_l = np.log(zs_l) if scale == 'log' else zs_l
-    ax_l.plot_surface(X, Y, zs_l.reshape(X.shape), color='k', alpha=0.8)
+    # zs_l = np.log(zs_l) if scale == 'log' else zs_l
+    zs_l = scale_fn(zs_l)
+    ax_l.plot_surface(X, Y, zs_l.reshape(X.shape), color='k', alpha=0.7)
     ax_l.set_xlabel('Sharp Dir')
     ax_l.set_ylabel('Flat Dir')
 

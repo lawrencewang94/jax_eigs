@@ -59,7 +59,7 @@ def get_ResNet3(depth, block_depth=3, n_out=10, base_width=16, multiplier=2, use
 
 
 def get_MLP(depth, n_out, n_h, use_BN=True, use_DO=False, input_flatten=False):
-    assert depth > 0
+    assert depth >= 0
     model_layers = []
     if input_flatten:
         model_layers+= [

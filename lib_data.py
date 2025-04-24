@@ -638,13 +638,13 @@ class onehot_DS(torch.utils.data.Dataset):
 
 
 def get_fashion_mnist(flatten=False, tr_indices=60000, te_indices=10000, hess_indices=None,
-                      tr_classes=10, te_classes=10, hess_classes=None, corrupt_p=0., one_hot=False,
+                      tr_classes=10, te_classes=10, hess_classes=None, corrupt_p=0., one_hot=False, augmentations=False,
                       visualise=True, rand_start=False):
 
     assert tr_indices // tr_classes <= 6000
     assert te_indices // te_classes <= 1000
 
-    normalize = transforms.Normalize((0.2859,), (0.3530,))  # MNIST
+    normalize = transforms.Normalize((0.2859,), (0.3530,))  # fMNIST
     if flatten:
         transform = transforms.Compose([
             transforms.ToTensor(),
@@ -767,7 +767,7 @@ def get_split_mnist(mode='f', flatten=False, tr_indices=60000, te_indices=10000,
     assert tr_indices // classes <= 6000
     assert te_indices // classes <= 1000
 
-    normalize = transforms.Normalize((0.2859,), (0.3530,))  # MNIST
+    normalize = transforms.Normalize((0.1307,), (0.3081,))  # MNIST
     if flatten:
         transform = transforms.Compose([
             transforms.ToTensor(),

@@ -74,10 +74,11 @@ class saveWeightsCB(Callback):
 
 
 class hessianCB(Callback):
-    def __init__(self, loss_fn, batch, save_freq, save_pref="traj/", verbose=False):
+    def __init__(self, loss_fn, batch, save_freq, bn=True, save_pref="traj/", verbose=False):
         super().__init__(save_freq=save_freq, save_pref=save_pref, verbose=verbose)
         self.name = "saveHess_" + str(save_freq)
         self.batch = batch
+        self.bn = bn
         self.loss_fn = loss_fn
         self.loss_wrap = None
         self.hessians = []
@@ -89,7 +90,7 @@ class hessianCB(Callback):
         if epoch % self.save_freq == 0:
             state = kwargs['state']
             if self.loss_wrap is None:
-                self.loss_wrap = spectral.get_loss_wrap(state, self.loss_fn)  # get fn that computes loss from (model, data)
+                self.loss_wrap = spectral.get_loss_wrap(state, self.loss_fn, bn=self.bn)  # get fn that computes loss from (model, data)
 
             try:
                 train = kwargs['train']
@@ -107,10 +108,11 @@ class hessianCB(Callback):
 
 
 class hvpCB(Callback):
-    def __init__(self, loss_fn, batches, save_freq, state=None, hess_bs=0, save_pref="traj/", verbose=False):
+    def __init__(self, loss_fn, batches, save_freq, state=None, hess_bs=0, bn=True, save_pref="traj/", verbose=False):
         super().__init__(save_freq=save_freq, save_pref=save_pref, verbose=verbose)
         self.name = "hvp_"+str(save_freq)
         self.batches = batches if len(batches) == 2 else batches[0]
+        self.bn = bn
         self.loss_fn = loss_fn
         self.hess_bs = hess_bs
 
@@ -122,7 +124,7 @@ class hvpCB(Callback):
             self.build_hvp(state)
 
     def build_hvp(self, state):
-        self.loss_wrap = spectral.get_loss_wrap(state, self.loss_fn)  # get fn that computes loss from (model, data)
+        self.loss_wrap = spectral.get_loss_wrap(state, self.loss_fn, bn=self.bn)  # get fn that computes loss from (model, data)
 
         # print(self.hess_bs, len(self.batches[0]))
         hvp_fn, self.model_structure, self.num_params = spectral.get_hvp_fn(self.loss_wrap, state, self.batches, self.hess_bs)  # get fn that computes hvp from (model, v)

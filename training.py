@@ -279,6 +279,9 @@ def train_model(state, model, loss_fn, metrics_history, n_epochs, loaders, name,
                                     tr_acc=metrics_history[f'train_accuracy'][-1],
                                     tr_loss=metrics_history[f'train_loss'][-1])
 
+            except (IndexError, KeyError):
+                signal = cb.forward(epoch=epoch, state=state, train=train,
+                                    tr_loss=metrics_history[f'train_loss'][-1])
             except ArithmeticError:
                 # in case early stop CB has a divergence
                 print("ES Arithmetic Error")
@@ -301,7 +304,7 @@ def train_model(state, model, loss_fn, metrics_history, n_epochs, loaders, name,
                     te_acc = metrics_history[f'test_accuracy'][-1]
                     te_loss = metrics_history[f'test_loss'][-1]
                     bar_text += f", train:{tr_loss:.2E}/{tr_acc:.0%}; test:{te_loss:.2E}/{te_acc:.0%}"
-                except KeyError:
+                except (IndexError, KeyError):
                     tr_loss = metrics_history[f'train_loss'][-1]
                     te_loss = metrics_history[f'test_loss'][-1]
                     bar_text += f", train:{tr_loss:.2E}; test:{te_loss:.2E}"

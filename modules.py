@@ -498,3 +498,31 @@ class VGGNet(nn.Module):
         x = nn.Dense(self.n_out)(x)
 
         return x
+
+class MLPNet(nn.Module):
+    """An MLP model."""
+    depth: int = 3
+    n_h: int = 32
+    n_out: int = 10
+
+    use_DO: bool = False
+    use_BN: bool = True
+    inputs_flatten: bool = True
+    deterministic: tp.Optional[bool] = None
+
+    @nn.compact
+    def __call__ (self, x, train=True):
+        if self.inputs_flatten:
+            x = x.reshape((x.shape[0], -1))
+
+        for i in range(self.depth):
+            x = nn.Dense(self.n_h)
+            if self.use_BN:
+                x = nn.BatchNorm(use_running_average=not train)(x)
+            if self.use_DO:
+                x = nn.Dropout(self.p_drop)(x, deterministic=not train)
+            x = nn.relu(x)
+
+        x = nn.Dense(self.n_out)(x)
+
+        return x
