@@ -69,6 +69,12 @@ def set_seed(seed):
 
 def save_weights(state, path, verbose=False):
     save_thing(state.params, path)
+    try:
+        if state.batch_stats:
+            bs_path = path.replace("/w", "/bs")
+            save_thing(state.batch_stats, bs_path)
+    except AttributeError:
+        pass
     if verbose: print("weights saved to", path)
 
 

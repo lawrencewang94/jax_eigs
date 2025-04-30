@@ -3,6 +3,8 @@ data/
 .idea/
 *.txt
 txt/
+adv/
+cached_wikitext2/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

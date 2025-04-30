@@ -8,6 +8,11 @@ import jax.numpy as jnp
 import numpy as np
 import matplotlib.pyplot as plt
 
+from datasets import load_dataset, load_from_disk
+from transformers import AutoTokenizer
+import os
+from itertools import chain
+
 data_dir = "data/"
 
 
@@ -584,22 +589,49 @@ def get_cifar10(flatten=False, tr_indices=60000, te_indices=10000, tr_classes=10
     return train_dataset, test_dataset, hess_dataset
 
 
-def visualise_cifar(sample, n=9):
+# def visualise_cifar(sample, n=10, verbose=True, fig=None, ax=None):
+#     imgs, lbls = sample
+#     imgs = imgs.reshape(imgs.shape[0], 3, 32, 32).transpose(0, 2, 3, 1) # CIFAR
+#     imgs = imgs[:n]
+#     lbls = lbls[:n]
+#     rows, columns = 1, 10
+#     if fig is None:
+#         fig = plt.figure(figsize=(10, 1))
+#
+#     # visualize these random images
+#     for i in range(1, columns * rows + 1):
+#         fig.add_subplot(rows, columns, i)
+#         if verbose: print(np.dtype(imgs[i-1][0,0,0]), np.max(imgs[i-1]), np.min(imgs[i-1]))
+#         plt.imshow(imgs[i - 1])
+#         plt.xticks([])
+#         plt.yticks([])
+#         plt.title("{}".format(lbls[i-1]))
+#     plt.show()
+
+def visualise_cifar(sample, n=10, verbose=True, fig=None, ax=None):
     imgs, lbls = sample
-    imgs = imgs.reshape(imgs.shape[0], 3, 32, 32).transpose(0, 2, 3, 1) # CIFAR
+    imgs = imgs.reshape(imgs.shape[0], 3, 32, 32).transpose(0, 2, 3, 1)  # NCHW to NHWC
     imgs = imgs[:n]
     lbls = lbls[:n]
-    rows, columns = 3, 3
-    fig = plt.figure(figsize=(4, 4))
-    # visualize these random images
-    for i in range(1, columns * rows + 1):
-        fig.add_subplot(rows, columns, i)
-        print(np.dtype(imgs[i-1][0,0,0]), np.max(imgs[i-1]), np.min(imgs[i-1]))
-        plt.imshow(imgs[i - 1])
-        plt.xticks([])
-        plt.yticks([])
-        plt.title("{}".format(lbls[i-1]))
-    plt.show()
+
+    if ax is not None:
+        assert len(ax) == n, f"Expected {n} axes, got {len(ax)}"
+        axes = ax
+    else:
+        fig, axes = plt.subplots(1, n, figsize=(n, 1.5))
+        if n == 1:
+            axes = [axes]  # Ensure it's iterable
+
+    for i in range(n):
+        if verbose:
+            print(np.dtype(imgs[i][0,0,0]), np.max(imgs[i]), np.min(imgs[i]))
+        axes[i].imshow(imgs[i])
+        axes[i].axis('off')
+        axes[i].set_title(str(lbls[i]), fontsize=8)
+
+    if fig is not None and ax is None:
+        plt.tight_layout()
+        plt.show()
 
 
 class CorruptedFMNIST(torch.utils.data.Dataset):
@@ -893,3 +925,54 @@ def get_tiny_shakespeare(block_size=32, tr_indices=90000, te_indices=10000, hess
     val_ds = Dataset(np.array(test_x, dtype=np.float32)[:, :, np.newaxis], np.array(test_y))
 
     return train_ds, val_ds
+
+def get_wikitext2_dataset(tokenizer_name="gpt2", block_size=128,
+                          max_train_samples=50000,
+                          max_eval_samples=10000,
+                          max_hess_samples=5000,
+                          cache_dir="./cached_wikitext2"):
+
+    os.makedirs(cache_dir, exist_ok=True)
+    tokenized_path = os.path.join(cache_dir, "tokenized")
+
+    # Load or tokenize and save
+    if os.path.exists(tokenized_path):
+        print("Loading tokenized dataset from disk...")
+        tokenized_dataset = load_from_disk(tokenized_path)
+    else:
+        print("⚙Tokenizing raw Wikitext-2...")
+        tokenizer = AutoTokenizer.from_pretrained(tokenizer_name)
+        tokenizer.pad_token = tokenizer.eos_token
+        raw_dataset = load_dataset("wikitext", "wikitext-2-raw-v1")
+
+        def tokenize_fn(examples):
+            return tokenizer(examples["text"], return_attention_mask=False)
+
+        tokenized_dataset = raw_dataset.map(tokenize_fn, batched=True, remove_columns=["text"])
+        tokenized_dataset.save_to_disk(tokenized_path)
+        print("Saved tokenized dataset to:", tokenized_path)
+
+    def build_lm_dataset(tok_data, max_chunks):
+        print("Flattening token sequences...")
+        all_tokens = list(chain.from_iterable(tok_data["input_ids"]))
+        total_tokens = len(all_tokens)
+        n_chunks = min(total_tokens // block_size, max_chunks)
+        print(f"Creating {n_chunks} chunks")
+
+        # Vectorized slicing
+        all_tokens = np.array(all_tokens[:n_chunks * block_size], dtype=np.int64).reshape(n_chunks, block_size)
+        xs = all_tokens[:, :-1].astype(np.int32)
+        ys = all_tokens[:, 1:].astype(np.int32)
+
+        xs = [x for x in xs]
+        ys = [y for y in ys]
+        return Dataset(xs, ys)
+
+    print("Building LM datasets...")
+    train_dataset = build_lm_dataset(tokenized_dataset["train"], max_train_samples)
+    test_dataset = build_lm_dataset(tokenized_dataset["test"], max_eval_samples)
+
+    # Reuse training set as Hessian set (simplified)
+    hess_dataset = train_dataset
+
+    return train_dataset, test_dataset, hess_dataset

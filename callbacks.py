@@ -369,7 +369,7 @@ class reparamCB(Callback):
 
 class earlyStopCB(Callback):
     # sets LR
-    def __init__(self, acc_threshold=None, max_eps=1999, min_eps=None, cbs=None, final_cbs=None, conseq_eps=1,
+    def __init__(self, acc_threshold=None, max_eps=1999, min_eps=None, cbs=None, final_cbs=[], conseq_eps=1,
                  save_final_weights=True, save_freq=1, save_pref="traj/", verbose=False, low_thresh=0.11, low_eps=100):
         super().__init__(save_freq=save_freq, save_pref=save_pref, verbose=verbose)
         self.acc_threshold = acc_threshold
