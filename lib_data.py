@@ -930,6 +930,7 @@ def get_wikitext2_dataset(tokenizer_name="gpt2", block_size=128,
                           max_train_samples=50000,
                           max_eval_samples=10000,
                           max_hess_samples=5000,
+                          stride=None,
                           cache_dir="./cached_wikitext2"):
 
     os.makedirs(cache_dir, exist_ok=True)
@@ -952,25 +953,34 @@ def get_wikitext2_dataset(tokenizer_name="gpt2", block_size=128,
         tokenized_dataset.save_to_disk(tokenized_path)
         print("Saved tokenized dataset to:", tokenized_path)
 
-    def build_lm_dataset(tok_data, max_chunks):
+    def build_lm_dataset(tok_data, max_chunks, block_size, stride=None):
+        if stride is None:
+            stride = block_size  # default to no overlap (original behavior)
+
         print("Flattening token sequences...")
         all_tokens = list(chain.from_iterable(tok_data["input_ids"]))
         total_tokens = len(all_tokens)
-        n_chunks = min(total_tokens // block_size, max_chunks)
-        print(f"Creating {n_chunks} chunks")
 
-        # Vectorized slicing
-        all_tokens = np.array(all_tokens[:n_chunks * block_size], dtype=np.int64).reshape(n_chunks, block_size)
-        xs = all_tokens[:, :-1].astype(np.int32)
-        ys = all_tokens[:, 1:].astype(np.int32)
+        # Compute number of chunks with overlap (striding)
+        n_chunks = min((total_tokens - block_size) // stride + 1, max_chunks)
+        print(f"Total {total_tokens} tokens. Creating {n_chunks} chunks with stride {stride}")
 
-        xs = [x for x in xs]
-        ys = [y for y in ys]
+        xs, ys = [], []
+        for i in range(n_chunks):
+            start = i * stride
+            end = start + block_size
+            chunk = all_tokens[start:end]
+            if len(chunk) == block_size:
+                x = chunk[:-1]
+                y = chunk[1:]
+                xs.append(np.array(x, dtype=np.int32))
+                ys.append(np.array(y, dtype=np.int32))
+
         return Dataset(xs, ys)
 
     print("Building LM datasets...")
-    train_dataset = build_lm_dataset(tokenized_dataset["train"], max_train_samples)
-    test_dataset = build_lm_dataset(tokenized_dataset["test"], max_eval_samples)
+    train_dataset = build_lm_dataset(tokenized_dataset["train"], max_train_samples, block_size, stride=None)
+    test_dataset = build_lm_dataset(tokenized_dataset["test"], max_eval_samples, block_size, stride=None)
 
     # Reuse training set as Hessian set (simplified)
     hess_dataset = train_dataset

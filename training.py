@@ -299,7 +299,6 @@ def train_model(state, model, loss_fn, metrics_history, n_epochs, loaders, name,
                 metrics_history[f'train_{metric}'].append(value)  # record metrics
             state = state.replace(metrics=state.metrics.empty())  # reset train_metrics for next training epoch
 
-
         train = False
 
         # ---------------------------------------
@@ -345,13 +344,24 @@ def train_model(state, model, loss_fn, metrics_history, n_epochs, loaders, name,
                 try:
                     tr_acc = metrics_history[f'train_accuracy'][-1]
                     tr_loss = metrics_history[f'train_loss'][-1]
+                    tr_perp = metrics_history[f'train_perplexity'][-1]
                     te_acc = metrics_history[f'test_accuracy'][-1]
                     te_loss = metrics_history[f'test_loss'][-1]
-                    bar_text += f", train:{tr_loss:.2E}/{tr_acc:.0%}; test:{te_loss:.2E}/{te_acc:.0%}"
+                    te_perp = metrics_history[f'test_perplexity'][-1]
+                    bar_text += f", train:{tr_loss:.2E}/{tr_perp:.2E}/{tr_acc:.0%}; test:{te_loss:.2E}/{te_perp:.2E}/{te_acc:.0%}"
                 except (IndexError, KeyError):
-                    tr_loss = metrics_history[f'train_loss'][-1]
-                    te_loss = metrics_history[f'test_loss'][-1]
-                    bar_text += f", train:{tr_loss:.2E}; test:{te_loss:.2E}"
+                    try:
+                        tr_acc = metrics_history[f'train_accuracy'][-1]
+                        tr_loss = metrics_history[f'train_loss'][-1]
+                        te_acc = metrics_history[f'test_accuracy'][-1]
+                        te_loss = metrics_history[f'test_loss'][-1]
+                        bar_text += f", train:{tr_loss:.2E}/{tr_acc:.0%}; test:{te_loss:.2E}/{te_acc:.0%}"
+                    except (IndexError, KeyError):
+                        tr_loss = metrics_history[f'train_loss'][-1]
+                        te_loss = metrics_history[f'test_loss'][-1]
+                        bar_text += f", train:{tr_loss:.2E}; test:{te_loss:.2E}"
+                    except AttributeError:
+                        pass
                 except AttributeError:
                     pass
                 if tqdm_over_epochs>0:
