@@ -228,20 +228,22 @@ def token_predictions(state, sample_batch, mode='col'):
 
     tokenizer = GPT2Tokenizer.from_pretrained("gpt2")
 
-    decoded_in = tokenizer.batch_decode(token_ids_in, skip_special_tokens=True)
-    decoded_out = tokenizer.batch_decode(token_ids_out, skip_special_tokens=True)
+    decoded_in = np.array(tokenizer.batch_decode(token_ids_in, skip_special_tokens=True)).flatten()
+    decoded_out = np.array(tokenizer.batch_decode(token_ids_out, skip_special_tokens=True))
     # print(decoded_in)
     # print(decoded_out)
     print("-------------------------------------------------------------------------------------------------------")
     if mode == 'col':
         print("INPUTS")
-        print(decoded_in)
+        print("".join(decoded_in.tolist()))
         # for text in decoded_in:
         #     print(text)
         print("OUTPUTS")
         # for text in decoded_out:
         #     print(text)
         print(decoded_out)
+        # print(",".join(decoded_out.tolist()))
+
     else:
         from itertools import zip_longest
         for in_str, out_str in zip(decoded_in, decoded_out):

@@ -16,14 +16,16 @@ from ml_collections import ConfigDict
 
 def make_configs():
     seed_list = [x for x in range(1)]
+    lr_list = [5e-3, 1e-3, 5e-4, 1e-4]
 
-    s = [seed_list]
+    s = [seed_list, lr_list]
     hyp_list = list(itertools.product(*s))
 
     sweep_configs = []
     for hyp in hyp_list:
         cfg = ConfigDict()
         cfg.seed = hyp[0]
+        cfg.lr = hyp[1]
         sweep_configs.append(cfg)
 
     return sweep_configs
@@ -50,7 +52,7 @@ def do_job(tasks_to_accomplish, tasks_that_are_done, job):
             # print(int(current_process().name[-1:]))
             process_id = int(current_process().name[-1:])
             os.environ['CUDA_VISIBLE_DEVICES'] = str(process_id-1)
-            os.environ['XLA_PYTHON_CLIENT_MEM_FRACTION'] = '0.95'
+            os.environ['XLA_PYTHON_CLIENT_MEM_FRACTION'] = '0.925'
             # os.environ['XLA_PYTHON_CLIENT_PREALLOCATE'] = 'false'
 
             out_str, mh, datasets = job(task, datasets, resume=False)
@@ -80,9 +82,14 @@ def do_job(tasks_to_accomplish, tasks_that_are_done, job):
 
 
 def main():
+
     # import utils
-    # mh = utils.load_thing("traj/250502-1158_wiki2_2335_276_GPT2-small-pretrained_seed0_sgdFam_1b0.9_2b0.999_3b0.0_lr0.005_warmup2_wd0.005_bs8/metrics.pkl")
-    # print(mh)
+    # # mh = utils.load_thing("traj/250502-1158_wiki2_2335_276_GPT2-small-pretrained_seed0_sgdFam_1b0.9_2b0.999_3b0.0_lr0.005_warmup2_wd0.005_bs8/metrics.pkl")
+    # mh = utils.load_thing("traj/250502-1403_wiki2_2335_276_stride1024_GPT2-small-pretrained_seed0_sgdFam_1b0.9_2b0.999_3b0.0_lr5e-05_warmup2_wd0.005_bs8/metrics.pkl")
+    #
+    # print(np.array(list(mh['train_perplexity'])))
+    # print(np.array(list(mh['test_perplexity'])))
+    #
     # return
 
     from train_scripts.gpt2_ft_wiki2_train import train_model
@@ -93,8 +100,8 @@ def main():
     number_of_tasks = len(configs)
     print(number_of_tasks, "tasks")
     number_of_processes = 4
-    # process_ids = [range(number_of_processes)]
-    process_ids = [2]
+    process_ids = list(range(number_of_processes))
+    # process_ids = [2, 3]
     tasks_to_accomplish = Queue()
     tasks_that_are_done = Queue()
     processes = []

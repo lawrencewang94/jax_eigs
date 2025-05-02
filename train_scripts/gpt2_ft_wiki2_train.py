@@ -22,11 +22,11 @@ def make_fixed_configs():
     # data configs
     data_config = ConfigDict(
         dict(
-            n_train=2335,  # 2335, 4670
-            n_eval=276,
+            n_train=9340,  # 2335, 4670, 2391884
+            n_eval=276,  # 283287 total
             n_hess=5120,
             seq_len=1024,
-            stride=1024,  # half of seq len, x2 data
+            stride=256,  # if half of seq len, then x2 data; 1024 is total sq len
             use_mse=False,
         )
     )
@@ -54,13 +54,13 @@ def make_fixed_configs():
     # optimizer configs
     optim_config = ConfigDict(
         dict(
-            lr=5e-5,
+            # lr=1e-3,
             bs=8,
             eval_bs=8,
             force_fb=False,
             grad_accum=4,
-            n_epochs=15,
-            warmup_steps=2,
+            n_epochs=60,
+            warmup_steps=3,
             loss_fn=optax.softmax_cross_entropy_with_integer_labels,
             b1=0.9,
             b2=0.999,
@@ -83,11 +83,11 @@ def make_fixed_configs():
             use_es=True,
             es_stat='train_perplexity',
             es_mode='min',
-            es_thresh=10.,
+            es_thresh=5.,
             es_consec=3,
-            es_low=35.,
+            es_low=40.,
             es_min_eps=0,
-            es_low_eps=15,
+            es_low_eps=60,
         )
     )
     config = ConfigDict(
@@ -99,6 +99,7 @@ def make_fixed_configs():
             force_train=False,
             tqdm_freq=1,
             eval_freq=1,
+            demo_outputs=True,
         )
     )
 
@@ -127,8 +128,12 @@ def train_model(var_cfg, datasets=None, resume=False, n_workers=8):
     from gpt2_utils import Transformer, load_params, token_predictions
     from flax.training import train_state  # Useful dataclass to keep train state
 
-    fixed_cfg = make_fixed_configs()
-    cfg = deep_merge(fixed_cfg, var_cfg)
+    cfg = make_fixed_configs()
+    # variable CFGs
+    cfg.seed = var_cfg.seed
+    cfg.optim.lr = var_cfg.lr
+
+    # cfg = deep_merge(fixed_cfg, var_cfg)
 
     # LOAD HYPS
     option = 'sam' if cfg.optim.sam is not None else ''
@@ -322,10 +327,10 @@ def train_model(var_cfg, datasets=None, resume=False, n_workers=8):
     state = create_train_state(model, optim, sample_batch[0], init_rng, option=option)
     del init_rng  # Must not be used anymore.
 
-    token_predictions(state, sample_batch)
+    if cfg.demo_outputs: token_predictions(state, sample_batch)
     # load GPT2 weights
     state = load_params(cfg, state)
-    token_predictions(state, sample_batch)
+    if cfg.demo_outputs: token_predictions(state, sample_batch)
 
     cbs = __get_cbs__(state)
     cb_name_str = utils.get_callback_name_str(cbs)
@@ -354,7 +359,7 @@ def train_model(var_cfg, datasets=None, resume=False, n_workers=8):
                                                tqdm_over_epochs=cfg.tqdm_freq, eval_freq=cfg.eval_freq, gradient_accumulation=cfg.optim.grad_accum,
                                                       return_state=True)
 
-    token_predictions(state, sample_batch)
+    if cfg.demo_outputs: token_predictions(state, sample_batch)
 
     out_str += f"tr_acc: {metrics_history['train_accuracy'][-1]:0%}, te_acc: {metrics_history['test_accuracy'][-1]:0%}"
     if cfg.cb.compute_hessian:
