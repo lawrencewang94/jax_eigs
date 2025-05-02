@@ -831,3 +831,38 @@ def optim_to_option(optim):
     elif optim == 'looksam':
         return 'sam'
 
+def reset_metrics(state):
+    state = state.replace(metrics=state.metrics.empty())  # reset train_metrics for next training epoch
+    return None
+
+def compute_bar_text(metrics_history, epoch):
+    bar_text = None
+    try:
+        bar_text = f"{epoch}"
+        try:
+            tr_acc = metrics_history[f'train_accuracy'][-1]
+            tr_loss = metrics_history[f'train_loss'][-1]
+            tr_perp = metrics_history[f'train_perplexity'][-1]
+            te_acc = metrics_history[f'test_accuracy'][-1]
+            te_loss = metrics_history[f'test_loss'][-1]
+            te_perp = metrics_history[f'test_perplexity'][-1]
+            bar_text += f", train:{tr_loss:.2E}/{tr_perp:.2E}/{tr_acc:.0%}; test:{te_loss:.2E}/{te_perp:.2E}/{te_acc:.0%}"
+        except (IndexError, KeyError):
+            try:
+                tr_acc = metrics_history[f'train_accuracy'][-1]
+                tr_loss = metrics_history[f'train_loss'][-1]
+                te_acc = metrics_history[f'test_accuracy'][-1]
+                te_loss = metrics_history[f'test_loss'][-1]
+                bar_text += f", train:{tr_loss:.2E}/{tr_acc:.0%}; test:{te_loss:.2E}/{te_acc:.0%}"
+            except (IndexError, KeyError):
+                tr_loss = metrics_history[f'train_loss'][-1]
+                te_loss = metrics_history[f'test_loss'][-1]
+                bar_text += f", train:{tr_loss:.2E}; test:{te_loss:.2E}"
+            except AttributeError:
+                pass
+        except AttributeError:
+            pass
+    except ZeroDivisionError:
+        pass
+
+    return bar_text

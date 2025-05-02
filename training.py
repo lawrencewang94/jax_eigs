@@ -195,7 +195,6 @@ def train_model(state, model, loss_fn, metrics_history, n_epochs, loaders, name,
     assert len(loaders) == 2
     print("Training model", name)
     train_loader, test_loader = loaders[0], loaders[1]
-
     # make the traj folder
     if not os.path.exists("traj/"+name):
         os.mkdir("traj/"+name)
@@ -207,6 +206,7 @@ def train_model(state, model, loss_fn, metrics_history, n_epochs, loaders, name,
     epoch_bar = tqdm(range(1, n_epochs+1), desc="epochs", total=n_epochs, maxinterval=tqdm_maxinterval,
                      miniters=tqdm_over_epochs) if tqdm_over_epochs>0 \
                 else range(1, n_epochs+1)
+
     train_bar = tqdm(train_loader, desc="training", total=len(train_loader)) if tqdm_over_batch else train_loader
     test_bar = tqdm(test_loader, desc="validation", total=len(test_loader)) if tqdm_over_batch else test_loader
     if verbose: print("bar length", len(train_bar), len(test_bar))
@@ -248,6 +248,7 @@ def train_model(state, model, loss_fn, metrics_history, n_epochs, loaders, name,
         tmp_state = _compute_metrics(state=tmp_state, batch=batch)
     for metric, value in tmp_state.metrics.compute().items():  # compute metrics
         metrics_history[f'train_{metric}'].append(value)  # record metrics
+    utils.reset_metrics(tmp_state)
     del tmp_state
 
     test_state = state
@@ -255,10 +256,18 @@ def train_model(state, model, loss_fn, metrics_history, n_epochs, loaders, name,
         test_state = _compute_metrics(state=test_state, batch=batch)
     for metric, value in test_state.metrics.compute().items():  # compute metrics
         metrics_history[f'test_{metric}'].append(value)  # record metrics
+    utils.reset_metrics(test_state)
 
     # model training
     start_time = time.time()
+    epoch = 0
+    print("Beginning training")
+
     for epoch in epoch_bar:
+        # initialize bar text
+        if epoch == 0:
+            bar_text = utils.compute_bar_text(metrics_history, epoch)
+            epoch_bar.set_description(bar_text)
         # ---------------------------------------
         # train
         # ---------------------------------------
@@ -270,7 +279,7 @@ def train_model(state, model, loss_fn, metrics_history, n_epochs, loaders, name,
                 state = _compute_metrics(state=state, batch=batch)  # aggregate batch metrics
             for metric, value in state.metrics.compute().items():  # compute metrics
                 metrics_history[f'train_{metric}'].append(value)  # record metrics
-            state = state.replace(metrics=state.metrics.empty())  # reset train_metrics for next training epoch
+            utils.reset_metrics(state)
 
         else:
             grads = _tree_zeros_like(state.params)
@@ -297,13 +306,12 @@ def train_model(state, model, loss_fn, metrics_history, n_epochs, loaders, name,
                 state = _compute_metrics(state=state, batch=batch)
             for metric, value in state.metrics.compute().items():  # compute metrics
                 metrics_history[f'train_{metric}'].append(value)  # record metrics
-            state = state.replace(metrics=state.metrics.empty())  # reset train_metrics for next training epoch
-
-        train = False
+            utils.reset_metrics(state)
 
         # ---------------------------------------
         # callbacks
         # ---------------------------------------
+        train = False
         for cb in callbacks:
             try:
                 signal = cb.forward(epoch=epoch, state=state, train=train,
@@ -328,56 +336,30 @@ def train_model(state, model, loss_fn, metrics_history, n_epochs, loaders, name,
         # ---------------------------------------
         # model = model.eval()
         # evaluate every N epochs
-        if epoch % eval_freq == 0 or callback_break_flag==True:
+        if epoch % eval_freq == 0 or callback_break_flag:
             test_state = state
             for test_batch in test_loader:
                 test_state = _compute_metrics(state=test_state, batch=test_batch)
         for metric, value in test_state.metrics.compute().items():
             metrics_history[f'test_{metric}'].append(value)
+        utils.reset_metrics(test_state)
 
         # ---------------------------------------
         # logs
         # ---------------------------------------
-        if (tqdm_over_epochs > 0) and ((epoch % tqdm_over_epochs) == 0) or (callback_break_flag == True):
-            try:
-                bar_text = f"{epoch}"
-                try:
-                    tr_acc = metrics_history[f'train_accuracy'][-1]
-                    tr_loss = metrics_history[f'train_loss'][-1]
-                    tr_perp = metrics_history[f'train_perplexity'][-1]
-                    te_acc = metrics_history[f'test_accuracy'][-1]
-                    te_loss = metrics_history[f'test_loss'][-1]
-                    te_perp = metrics_history[f'test_perplexity'][-1]
-                    bar_text += f", train:{tr_loss:.2E}/{tr_perp:.2E}/{tr_acc:.0%}; test:{te_loss:.2E}/{te_perp:.2E}/{te_acc:.0%}"
-                except (IndexError, KeyError):
-                    try:
-                        tr_acc = metrics_history[f'train_accuracy'][-1]
-                        tr_loss = metrics_history[f'train_loss'][-1]
-                        te_acc = metrics_history[f'test_accuracy'][-1]
-                        te_loss = metrics_history[f'test_loss'][-1]
-                        bar_text += f", train:{tr_loss:.2E}/{tr_acc:.0%}; test:{te_loss:.2E}/{te_acc:.0%}"
-                    except (IndexError, KeyError):
-                        tr_loss = metrics_history[f'train_loss'][-1]
-                        te_loss = metrics_history[f'test_loss'][-1]
-                        bar_text += f", train:{tr_loss:.2E}; test:{te_loss:.2E}"
-                    except AttributeError:
-                        pass
-                except AttributeError:
-                    pass
-                if tqdm_over_epochs>0:
-                    epoch_bar.set_description(bar_text)
-
-            except ZeroDivisionError:
-                pass
+        bar_text = utils.compute_bar_text(metrics_history, epoch)
+        if (tqdm_over_epochs > 0) and ((epoch % tqdm_over_epochs) == 0) or callback_break_flag:
+            epoch_bar.set_description(bar_text)
 
         if callback_break_flag:
             print("terminating training", bar_text)
             break
-    if not callback_break_flag:
+    if not callback_break_flag and len(callbacks) > 0:
         callbacks[-1].final_state = state
         callbacks[-1].final_epoch = epoch
 
     metrics_history['lse'] = epoch
+
     # save histories
     utils.save_thing(metrics_history, "traj/" + name + "/metrics.pkl")
 
