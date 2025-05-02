@@ -178,7 +178,7 @@ def _get_train_jits(loss_fn, option=""):
 
 def train_model(state, model, loss_fn, metrics_history, n_epochs, loaders, name, callbacks=[], option="",
                 tqdm_over_epochs=True, tqdm_over_batch=False, force_fb=False, verbose=False,
-                tqdm_maxinterval=1800, eval_freq=1, gradient_accumulation=1):
+                tqdm_maxinterval=1800, eval_freq=1, gradient_accumulation=1, return_state=False):
     '''
     # check stuff, define stuff, make folders,
     # set up loops
@@ -243,20 +243,17 @@ def train_model(state, model, loss_fn, metrics_history, n_epochs, loaders, name,
     _train_step, _get_grads, _compute_metrics = _get_train_jits(loss_fn, option=option)
 
     # compute metrics at epoch 0
-    tmp_state = state
     for batch in train_bar:
-        tmp_state = _compute_metrics(state=tmp_state, batch=batch)
-    for metric, value in tmp_state.metrics.compute().items():  # compute metrics
+        state = _compute_metrics(state=state, batch=batch)
+    for metric, value in state.metrics.compute().items():  # compute metrics
         metrics_history[f'train_{metric}'].append(value)  # record metrics
-    utils.reset_metrics(tmp_state)
-    del tmp_state
+    state = state.replace(metrics=state.metrics.empty())  # reset train_metrics for next training epoch
 
-    test_state = state
     for batch in test_bar:
-        test_state = _compute_metrics(state=test_state, batch=batch)
-    for metric, value in test_state.metrics.compute().items():  # compute metrics
+        state = _compute_metrics(state=state, batch=batch)
+    for metric, value in state.metrics.compute().items():  # compute metrics
         metrics_history[f'test_{metric}'].append(value)  # record metrics
-    utils.reset_metrics(test_state)
+    state = state.replace(metrics=state.metrics.empty())  # reset train_metrics for next training epoch
 
     # model training
     start_time = time.time()
@@ -279,7 +276,7 @@ def train_model(state, model, loss_fn, metrics_history, n_epochs, loaders, name,
                 state = _compute_metrics(state=state, batch=batch)  # aggregate batch metrics
             for metric, value in state.metrics.compute().items():  # compute metrics
                 metrics_history[f'train_{metric}'].append(value)  # record metrics
-            utils.reset_metrics(state)
+            state = state.replace(metrics=state.metrics.empty())  # reset train_metrics for next training epoch
 
         else:
             grads = _tree_zeros_like(state.params)
@@ -306,7 +303,7 @@ def train_model(state, model, loss_fn, metrics_history, n_epochs, loaders, name,
                 state = _compute_metrics(state=state, batch=batch)
             for metric, value in state.metrics.compute().items():  # compute metrics
                 metrics_history[f'train_{metric}'].append(value)  # record metrics
-            utils.reset_metrics(state)
+            state = state.replace(metrics=state.metrics.empty())  # reset train_metrics for next training epoch
 
         # ---------------------------------------
         # callbacks
@@ -315,12 +312,8 @@ def train_model(state, model, loss_fn, metrics_history, n_epochs, loaders, name,
         for cb in callbacks:
             try:
                 signal = cb.forward(epoch=epoch, state=state, train=train,
-                                    tr_acc=metrics_history[f'train_accuracy'][-1],
-                                    tr_loss=metrics_history[f'train_loss'][-1])
+                                    mh=metrics_history,)
 
-            except (IndexError, KeyError):
-                signal = cb.forward(epoch=epoch, state=state, train=train,
-                                    tr_loss=metrics_history[f'train_loss'][-1])
             except ArithmeticError:
                 # in case early stop CB has a divergence
                 print("ES Arithmetic Error")
@@ -337,12 +330,12 @@ def train_model(state, model, loss_fn, metrics_history, n_epochs, loaders, name,
         # model = model.eval()
         # evaluate every N epochs
         if epoch % eval_freq == 0 or callback_break_flag:
-            test_state = state
+            state = state
             for test_batch in test_loader:
-                test_state = _compute_metrics(state=test_state, batch=test_batch)
-        for metric, value in test_state.metrics.compute().items():
+                state = _compute_metrics(state=state, batch=test_batch)
+        for metric, value in state.metrics.compute().items():
             metrics_history[f'test_{metric}'].append(value)
-        utils.reset_metrics(test_state)
+        state = state.replace(metrics=state.metrics.empty())  # reset train_metrics for next training epoch
 
         # ---------------------------------------
         # logs
@@ -354,6 +347,7 @@ def train_model(state, model, loss_fn, metrics_history, n_epochs, loaders, name,
         if callback_break_flag:
             print("terminating training", bar_text)
             break
+
     if not callback_break_flag and len(callbacks) > 0:
         callbacks[-1].final_state = state
         callbacks[-1].final_epoch = epoch
@@ -367,7 +361,9 @@ def train_model(state, model, loss_fn, metrics_history, n_epochs, loaders, name,
         cb.save()
 
     print("Training complete", name)
-
-    return metrics_history
+    if not return_state:
+        return metrics_history
+    else:
+        return metrics_history, state
 
 

@@ -979,7 +979,7 @@ def get_wikitext2_dataset(tokenizer_name="gpt2", block_size=128,
         return Dataset(xs, ys)
 
     print("Building LM datasets...")
-    train_dataset = build_lm_dataset(tokenized_dataset["train"], max_train_samples, block_size, stride=None)
+    train_dataset = build_lm_dataset(tokenized_dataset["train"], max_train_samples, block_size, stride=stride)
     test_dataset = build_lm_dataset(tokenized_dataset["test"], max_eval_samples, block_size, stride=None)
 
     # Reuse training set as Hessian set (simplified)

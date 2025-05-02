@@ -248,7 +248,7 @@ def train_model(hyp, datasets=None, resume=False, n_workers=8):
 
     optim, optim_name = __get_optim__ (warmup_steps, lr, b1, b2, b3, sam_type=sam_type, rho=sam_rho,
                                        sync_period=sam_sync)
-    optim_name += f"_epochs{n_epochs}_bs{bs}"
+    optim_name += f"_bs{bs}"
 
     init_rng = jax.random.PRNGKey(seed)
     state = create_train_state(model, optim, sample_batch[0], init_rng, option=option)

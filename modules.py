@@ -12,7 +12,7 @@ import dataclasses
 import utils
 import spectral
 import training
-
+from typing import Optional, Union
 import typing as tp
 
 import jax.flatten_util as fu
@@ -27,6 +27,12 @@ pi = jnp.pi
 exp = jnp.exp
 
 import typing as tp
+from optax._src import base, combine, numerics, transform
+
+# Type aliases
+DType = np.dtype
+ScalarOrSchedule = Union[float, base.Schedule]
+import optax_adam_bounded as oab
 
 
 # python file for loss functions, optimizers, computations, etc.
@@ -352,34 +358,68 @@ class ResNet(nn.Module):
         return x
 
 
-def get_sgd_optimizer (lr_schedule, b1, b2, b3=None, verbose=False, debug_one=False):
+def get_sgd_optimizer(
+    learning_rate: ScalarOrSchedule,
+    b1: float,
+    b2: float,
+    b3: Optional[float] = None,
+    weight_decay: float = 0.0,
+    verbose: bool = False,
+    debug_one: bool = False,  # Not used yet, but kept for compatibility
+) -> base.GradientTransformation:
     if b1 == 0 and b2 == 0:
-        if verbose: print("Using vanilla SGD!")
-        optimizer = optax.sgd(lr_schedule)
+        if verbose:
+            print("Using SGD")
+        if weight_decay > 0:
+            return optax.chain(
+                optax.add_decayed_weights(weight_decay),
+                optax.sgd(learning_rate)
+            )
+        return optax.sgd(learning_rate)
+
     elif b1 != 0 and b2 == 0:
-        # if verbose: print("Using SGD momentum!")
-        # optimizer = tx.Optimizer(optax.sgd(lr_scheduler, momentum=b1))
-        ### Now we use adam for EMA scaled momentum, and better comparison
-        if verbose: print("Using Adam!")
-        optimizer = optax.adam(lr_schedule, b1=b1, b2=0, eps_root=1.,
-                               eps=0.)  # eps root = 1 so we don't divide by 0 because b2 is 0
-    else:
-        if b3 != 0:
-            import optax_adam_bounded as oab
-            import importlib
-            importlib.reload(oab)
+        if verbose:
+            print("Using Adam (momentum only)")
+        if weight_decay > 0:
+            return optax.adamw(
+                learning_rate, b1=b1, b2=0, eps=0., eps_root=1., weight_decay=weight_decay
+            )
+        return optax.adam(
+            learning_rate, b1=b1, b2=0, eps=0., eps_root=1.
+        )
 
-        if verbose: print("Using Adam!")
-        if b3 != 0 and debug_one:
-            optimizer = oab.adam_one(lr_schedule, b1=b1, b2=b2)
+    # Determine custom Adam mode from b3
+    if b3 is not None:
+        if b3 == 0:
+            mode = "=="
         elif b3 > 0:
-            optimizer = oab.adam_lb(lr_schedule, b1=b1, b2=b2, lower_bound=b3)
+            mode = ">="
         elif b3 < 0:
-            optimizer = oab.adam_ub(lr_schedule, b1=b1, b2=b2, upper_bound=abs(b3))
+            mode = "<="
         else:
-            optimizer = optax.adam(lr_schedule, b1=b1, b2=b2)
+            raise ValueError(f"Invalid b3 value: {b3}")
+        if verbose:
+            print(f"Using custom bounded Adam mode: {mode}")
+        return oab.adam_oab(
+            mode=mode,
+            learning_rate=learning_rate,
+            b1=b1,
+            b2=b2,
+            eps=1e-8,
+            eps_root=0.0,
+            weight_decay=weight_decay,
+            nesterov=False
+        )
 
-    return optimizer
+    if verbose:
+        print("Using standard Adam")
+    if weight_decay > 0:
+        return optax.adamw(
+            learning_rate, b1=b1, b2=b2, weight_decay=weight_decay
+        )
+    return optax.adam(
+        learning_rate, b1=b1, b2=b2
+    )
 
 
 from typing import Any, Callable
@@ -387,7 +427,6 @@ from typing import Any, Callable
 from flax import core
 from flax import struct
 import optax
-from optax import contrib
 
 
 class TrainStateSAM(struct.PyTreeNode):

@@ -831,10 +831,6 @@ def optim_to_option(optim):
     elif optim == 'looksam':
         return 'sam'
 
-def reset_metrics(state):
-    state = state.replace(metrics=state.metrics.empty())  # reset train_metrics for next training epoch
-    return None
-
 def compute_bar_text(metrics_history, epoch):
     bar_text = None
     try:

@@ -59,14 +59,19 @@ class Callback:
 
 
 class saveWeightsCB(Callback):
-    def __init__(self, save_freq, save_pref="traj/", grad=True, verbose=False):
+    def __init__(self, save_freq, save_pref="traj/", grad=True, skip0=False, verbose=False):
         super().__init__(save_freq=save_freq, save_pref=save_pref, verbose=verbose)
         self.name = "saveW_" + str(save_freq)
         self.save_grad = grad
+        self.skip0 = skip0
 
     def forward(self, **kwargs):
         epoch = kwargs['epoch']
         # if epoch % self.save_freq == 0 or epoch % self.save_freq == 1 or (epoch + 1) % self.save_freq == 0:  # removed modulus = 1, define w_grad[i] = w[i] - w[i-1]
+
+        if self.skip0 and epoch == 0:
+            return None
+
         if epoch % self.save_freq == 0 or (self.save_grad==True and (epoch + 1) % self.save_freq == 0):
 
             state = kwargs['state']
@@ -369,32 +374,44 @@ class reparamCB(Callback):
 
 class earlyStopCB(Callback):
     # sets LR
-    def __init__(self, acc_threshold=None, max_eps=1999, min_eps=None, cbs=None, final_cbs=[], conseq_eps=1,
-                 save_final_weights=True, save_freq=1, save_pref="traj/", verbose=False, low_thresh=0.11, low_eps=100):
+    def __init__(self, threshold=None, max_eps=1999, min_eps=None, cbs=None, final_cbs=[], conseq_eps=1,
+                 save_final_weights=True, save_freq=1, save_pref="traj/", verbose=False,
+                 low_thresh=0.11, low_eps=100, statistic='train_accuracy', mode='max', acc_threshold=None):
         super().__init__(save_freq=save_freq, save_pref=save_pref, verbose=verbose)
-        self.acc_threshold = acc_threshold
+        if threshold is None and acc_threshold is not None:
+            self.threshold = acc_threshold
+        else:
+            self.threshold = threshold
+
         self.cbs = cbs
         self.max_eps = max_eps
         self.min_eps = min_eps
         self.conseq_eps = conseq_eps
         self.sfw = save_final_weights
         self.final_cbs = final_cbs
+        self.statistic = statistic
 
         self.name = "esCB"
-        if self.acc_threshold is not None:
-            self.name += "_"+str(acc_threshold)
+        self.name += "_"+str(self.threshold)
         if self.conseq_eps > 1:
-            self.name += f"_conseq{conseq_eps}"
+            self.name += f"_conseq{conseq_eps}"  # misspelled, embarassing
         if self.sfw:
             self.name += "_save"
 
         self.final_epoch = None
         self.final_model = None
-        self.accs = np.zeros((low_eps))
+        self.stats = np.zeros((low_eps))
         self.low_thresh = low_thresh
         self.low_eps = low_eps
-        self.acc_counter = 0
+        self.stat_counter = 0
         self.conseq_counter = 0
+
+        if mode == 'max':
+            self.comp_fn = lambda x, t: x >= t
+        elif mode == 'min':
+            self.comp_fn = lambda x, t: x <= t
+        else:
+            raise NotImplementedError
 
     def forward(self, **kwargs):
         if kwargs['epoch'] % self.save_freq != 0:
@@ -404,25 +421,35 @@ class earlyStopCB(Callback):
         if self.min_eps is not None:
             if kwargs['epoch'] <= self.min_eps:
                 break_flag = False
+        try:
+            mh = kwargs['mh']
+        except KeyError:
+            break_flag = False
+            return None
+
+        for key in mh.keys():
+            if key[:5] == 'train':
+                if math.isnan(mh[key][-1]):
+                    break_flag = True
 
         # don't allow break when under train_acc requirement
-        if self.acc_threshold is not None:
-            if 'tr_acc' in kwargs:
-                if self.verbose: print("ES", kwargs['tr_acc'], 'tr_acc' in kwargs)
-                if math.isnan(kwargs['tr_acc']):
+        if self.threshold is not None:
+            if self.statistic in mh.keys():
+                key_stat = mh[self.statistic][-1]
+                if math.isnan(key_stat):
                     break_flag = True
                 else:
-                    if kwargs['tr_acc'] < self.acc_threshold:
-                        break_flag = False
-                        self.accs[self.acc_counter%self.low_eps] = kwargs['tr_acc']
-                        self.acc_counter += 1
-                    else:
+                    if self.comp_fn(key_stat, self.threshold):
                         if self.conseq_counter < self.conseq_eps:
                             self.conseq_counter += 1
                             break_flag = False
+                    else:
+                        break_flag = False
+                        self.stats[self.stat_counter % self.low_eps] = key_stat
+                        self.stat_counter += 1
 
                 # break after low eps (100) epochs of no improvement above baseline (low thresh)
-                if self.acc_counter >= self.low_eps and np.mean(self.accs) < self.low_thresh:
+                if self.stat_counter >= self.low_eps and not self.comp_fn(np.mean(self.stats), self.low_thresh):
                     break_flag = True
             else:
                 break_flag = False
@@ -433,13 +460,7 @@ class earlyStopCB(Callback):
                 if cb.check_es() != True:
                     break_flag=False
 
-        if 'tr_loss' in kwargs:
-            if math.isnan(kwargs['tr_loss']):
-                break_flag = True
-
         if break_flag:
-            # if self.acc_threshold is not None:
-                # print("Train acc", kwargs['tr_acc'])
             self.final_epoch = kwargs['epoch']
             self.final_state = kwargs['state']
             for cb in self.final_cbs:
