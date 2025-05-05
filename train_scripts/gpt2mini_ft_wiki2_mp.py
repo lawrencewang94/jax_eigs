@@ -130,7 +130,7 @@ def main():
     #
     # return
 
-    from train_scripts.gpt2_ft_wiki2_train import train_model
+    from train_scripts.gpt2mini_ft_wiki2_train import train_model
 
     ### Flexible HPs
     configs = make_configs()

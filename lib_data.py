@@ -934,11 +934,11 @@ def get_wikitext2_dataset(tokenizer_name="gpt2", block_size=128,
                           cache_dir="./cached_wikitext2"):
 
     os.makedirs(cache_dir, exist_ok=True)
-    tokenized_path = os.path.join(cache_dir, "tokenized")
+    tokenized_path = os.path.join(cache_dir, "tokenized_"+tokenizer_name)
 
     # Load or tokenize and save
     if os.path.exists(tokenized_path):
-        print("Loading tokenized dataset from disk...")
+        print("Loading tokenized dataset from disk...", tokenized_path)
         tokenized_dataset = load_from_disk(tokenized_path)
     else:
         print("⚙Tokenizing raw Wikitext-2...")

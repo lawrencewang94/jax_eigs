@@ -23,9 +23,9 @@ from scipy.signal import find_peaks
 from sklearn.neighbors import KernelDensity
 import itertools
 import math
+from ml_collections import ConfigDict
 
-
-#define jax types
+# define jax types
 Batch = tp.Mapping[str, np.ndarray]
 # Model = tx.Sequential
 Logs = tp.Dict[str, jnp.ndarray]
@@ -110,8 +110,8 @@ def get_all_weights(folder, freq=1):
     all_weights = []
     all_flat_weights = []
 
-    for i in range(0, final_ind+1, freq):
-        file = folder + "/w"+str(i)+".pkl"
+    for i in range(0, final_ind + 1, freq):
+        file = folder + "/w" + str(i) + ".pkl"
         weights = load_thing(file)
         flat_weights, _ = fu.ravel_pytree(weights)
         all_weights.append(weights)
@@ -124,8 +124,8 @@ def get_thinned_w_grads(folder, freq=1):
     final_ind = count_weight_files(folder, freq)
     all_w_grads = []
 
-    for i in range(freq, final_ind+1, freq):
-        file = folder + "/w" + str(i-1) + ".pkl"
+    for i in range(freq, final_ind + 1, freq):
+        file = folder + "/w" + str(i - 1) + ".pkl"
         next_file = folder + "/w" + str(i) + ".pkl"
 
         weights = load_thing(file)
@@ -147,9 +147,9 @@ def count_params(params):
 
 def cos_sim(a, b, return_abs=True):
     if return_abs:
-        return np.abs(np.dot(a, b)/np.linalg.norm(a)/np.linalg.norm(b))
+        return np.abs(np.dot(a, b) / np.linalg.norm(a) / np.linalg.norm(b))
     else:
-        return np.dot(a, b)/np.linalg.norm(a)/np.linalg.norm(b)
+        return np.dot(a, b) / np.linalg.norm(a) / np.linalg.norm(b)
 
 
 def compare_cbs(b_list, a_str):
@@ -165,8 +165,8 @@ def compare_cbs(b_list, a_str):
 
 
 def extract_number(f):
-    s = re.findall("\d+$",f)
-    return (int(s[0]) if s else -1,f)
+    s = re.findall("\d+$", f)
+    return (int(s[0]) if s else -1, f)
 
 
 def find_latest_exp(name, n_epochs, save_freq=1, cbs=None, verbose=False, unknown_lse=False,
@@ -175,11 +175,11 @@ def find_latest_exp(name, n_epochs, save_freq=1, cbs=None, verbose=False, unknow
     exp_details = name[11:]
 
     folder_list = glob.glob(f"{traj_prefix}*{exp_details}")
-    folder_list.sort(reverse=True) # latest experiments first
-    len_folder_skip = len(traj_prefix) # skipping the folder string
+    folder_list.sort(reverse=True)  # latest experiments first
+    len_folder_skip = len(traj_prefix)  # skipping the folder string
 
     last_save_epoch = n_epochs
-    while (last_save_epoch % save_freq != 0): # make sure this one is actually saved
+    while (last_save_epoch % save_freq != 0):  # make sure this one is actually saved
         last_save_epoch -= 1
 
     if verbose: print(folder_list)
@@ -189,17 +189,17 @@ def find_latest_exp(name, n_epochs, save_freq=1, cbs=None, verbose=False, unknow
         # Reject if callbacks do not match
         if cbs is not None:
             # If using callbacks file
-            if os.path.exists(folder+"/callbacks.pkl"):
-                cb_name_load = load_thing(folder+"/callbacks.pkl")
+            if os.path.exists(folder + "/callbacks.pkl"):
+                cb_name_load = load_thing(folder + "/callbacks.pkl")
 
             # If not using callbacks file
             else:
-                len_skip = 5+12+len(exp_details)+1 - 1
+                len_skip = 5 + 12 + len(exp_details) + 1 - 1
                 if verbose: print("no cb file", folder)
                 # reject if folder has no CBs
                 if len(folder) < len_skip + 1:
                     continue
-                cb_name_load = folder[len_skip:] # traj/ + date + exp_name = 5+12+len(exp_name) + 1
+                cb_name_load = folder[len_skip:]  # traj/ + date + exp_name = 5+12+len(exp_name) + 1
 
             # reject if CBs from list does not exist in the string
             cb_fit = compare_cbs(cbs, cb_name_load)
@@ -213,7 +213,7 @@ def find_latest_exp(name, n_epochs, save_freq=1, cbs=None, verbose=False, unknow
                 return folder[len_folder_skip:], last_save_epoch
             else:
                 if resume:
-                    list_of_files = glob.glob(folder+"/w*")  # * means all if need specific format then *.csv
+                    list_of_files = glob.glob(folder + "/w*")  # * means all if need specific format then *.csv
                     list_of_files = [x.split("/")[1] for x in list_of_files]
                     latest_file = max(list_of_files, key=extract_number)
                     return folder[len_folder_skip:], int(latest_file[1:-4])
@@ -221,7 +221,7 @@ def find_latest_exp(name, n_epochs, save_freq=1, cbs=None, verbose=False, unknow
                     if verbose: print("no lse found")
         else:
             # print("unknown lse")
-            es_files = glob.glob(folder+"/early_stop*")
+            es_files = glob.glob(folder + "/early_stop*")
             if verbose: print("unknown lse", es_files)
             if len(es_files) > 0:
                 # print(es_files[0])
@@ -230,11 +230,11 @@ def find_latest_exp(name, n_epochs, save_freq=1, cbs=None, verbose=False, unknow
             else:
                 if resume:
                     print("I'm here!", folder)
-                    list_of_files = glob.glob(folder+"/w*")  # * means all if need specific format then *.csv
+                    list_of_files = glob.glob(folder + "/w*")  # * means all if need specific format then *.csv
                     list_of_lses = [int(x.split("/")[-1][1:-4]) for x in list_of_files]
                     # latest_file = max(list_of_files, key=extract_number)
                     # print(list_of_lses)
-                    if max(list_of_lses)>resume_n:
+                    if max(list_of_lses) > resume_n:
                         return folder[len_folder_skip:], max(list_of_lses)
                     else:
                         if verbose: print("training ended too early", max(list_of_lses))
@@ -245,14 +245,14 @@ def find_latest_exp(name, n_epochs, save_freq=1, cbs=None, verbose=False, unknow
 
 
 def find_latest_exp_no_epoch(name, cbs=None, verbose=False, max_eps=0,
-                    resume=False, resume_n=0, traj_prefix='traj/'):
+                             resume=False, resume_n=0, traj_prefix='traj/'):
     # save code as above, but assuming always no LSE, and remove n_epochs and save_freq as inputs
     time_str = name[:11]
     exp_details = name[11:]
 
     folder_list = glob.glob(f"{traj_prefix}*{exp_details}")
-    folder_list.sort(reverse=True) # latest experiments first
-    len_folder_skip = len(traj_prefix) # skipping the folder string
+    folder_list.sort(reverse=True)  # latest experiments first
+    len_folder_skip = len(traj_prefix)  # skipping the folder string
 
     if verbose: print(folder_list)
 
@@ -261,17 +261,17 @@ def find_latest_exp_no_epoch(name, cbs=None, verbose=False, max_eps=0,
         # Reject if callbacks do not match
         if cbs is not None:
             # If using callbacks file
-            if os.path.exists(folder+"/callbacks.pkl"):
-                cb_name_load = load_thing(folder+"/callbacks.pkl")
+            if os.path.exists(folder + "/callbacks.pkl"):
+                cb_name_load = load_thing(folder + "/callbacks.pkl")
 
             # If not using callbacks file
             else:
-                len_skip = 5+12+len(exp_details)+1 - 1
+                len_skip = 5 + 12 + len(exp_details) + 1 - 1
                 if verbose: print("no cb file", folder)
                 # reject if folder has no CBs
                 if len(folder) < len_skip + 1:
                     continue
-                cb_name_load = folder[len_skip:] # traj/ + date + exp_name = 5+12+len(exp_name) + 1
+                cb_name_load = folder[len_skip:]  # traj/ + date + exp_name = 5+12+len(exp_name) + 1
 
             # reject if CBs from list does not exist in the string
             cb_fit = compare_cbs(cbs, cb_name_load)
@@ -281,7 +281,7 @@ def find_latest_exp_no_epoch(name, cbs=None, verbose=False, max_eps=0,
 
         # If not rejected by CBs, check last weight file exists and return
         # print("unknown lse")
-        es_files = glob.glob(folder+"/early_stop*")
+        es_files = glob.glob(folder + "/early_stop*")
 
         if len(es_files) > 0:
             # print(es_files[0])
@@ -296,11 +296,11 @@ def find_latest_exp_no_epoch(name, cbs=None, verbose=False, max_eps=0,
                 else:
                     if resume:
                         print("I'm here!", folder)
-                        list_of_files = glob.glob(folder+"/w*")  # * means all if need specific format then *.csv
+                        list_of_files = glob.glob(folder + "/w*")  # * means all if need specific format then *.csv
                         list_of_lses = [int(x.split("/")[-1][1:-4]) for x in list_of_files]
                         # latest_file = max(list_of_files, key=extract_number)
                         # print(list_of_lses)
-                        if max(list_of_lses)>resume_n:
+                        if max(list_of_lses) > resume_n:
                             return folder[len_folder_skip:], max(list_of_lses)
                         else:
                             if verbose: print("training ended too early", max(list_of_lses))
@@ -313,28 +313,27 @@ def find_latest_exp_no_epoch(name, cbs=None, verbose=False, max_eps=0,
     raise FileNotFoundError
 
 
-
 def thin_pickle(path, n_pl=None, pf=None, has0=True):
-
     thing = load_thing(path)
 
     if n_pl is None:
         thin_freq = pf
         if has0:
-            num_pl = math.ceil((len(thing)-1)/thin_freq)
+            num_pl = math.ceil((len(thing) - 1) / thin_freq)
         else:
-            num_pl = math.ceil((len(thing))/thin_freq)
+            num_pl = math.ceil((len(thing)) / thin_freq)
         new_path = path[:-4] + "_thin" + str(num_pl) + ".pkl"
 
         try:
             if has0:
-                thin_thing = [thing[i] for i in range(0, len(thing), thin_freq)] # from 0 onwards
+                thin_thing = [thing[i] for i in range(0, len(thing), thin_freq)]  # from 0 onwards
             else:
                 assert len(thing) % thin_freq == 0
-                thin_thing = [thing[i] for i in range((len(thing)-1)%thin_freq, len(thing), thin_freq)] # from plot_freq-1 onwards
+                thin_thing = [thing[i] for i in
+                              range((len(thing) - 1) % thin_freq, len(thing), thin_freq)]  # from plot_freq-1 onwards
         except AssertionError:
-            print(n_pl, thin_freq, len(thing), len(thing)%thin_freq)
-            raise(AssertionError)
+            print(n_pl, thin_freq, len(thing), len(thing) % thin_freq)
+            raise (AssertionError)
     else:
         thin_freq = int(len(thing) / n_pl)
         new_path = path[:-4] + "_thin" + str(n_pl) + ".pkl"
@@ -346,7 +345,8 @@ def thin_pickle(path, n_pl=None, pf=None, has0=True):
                 thin_thing = [thing[i] for i in range(0, len(thing), thin_freq)]  # from 0 onwards
             else:
                 assert len(thing) % thin_freq == 0
-                thin_thing = [thing[i] for i in range((len(thing) - 1) % thin_freq, len(thing), thin_freq)]  # from plot_freq-1 onwards
+                thin_thing = [thing[i] for i in
+                              range((len(thing) - 1) % thin_freq, len(thing), thin_freq)]  # from plot_freq-1 onwards
         except AssertionError:
             print(n_pl, thin_freq, len(thing), len(thing) % thin_freq)
             raise (AssertionError)
@@ -377,7 +377,7 @@ def depth_vlines(model, wb=False):
     tmp = 0
     for i, w in enumerate(weights):
         if not wb:
-            if (i+1) % 2 == 0:
+            if (i + 1) % 2 == 0:
                 shapes.append(tmp + np.prod(w.shape))
                 tmp = 0
             else:
@@ -416,7 +416,7 @@ def compute_neff_k(e_vals, reg=0.5, abs=True, k=1):
     line = []
     for t in range(len_t):
         sorted_evals = np.sort(e_vals[t])[::-1]
-        alpha = sorted_evals[k-1] * reg
+        alpha = sorted_evals[k - 1] * reg
         line.append(np.sum(e_vals[t] / (e_vals[t] + alpha)))
     return np.array(line)
 
@@ -427,7 +427,7 @@ def compute_neff_k_neg0(e_vals, reg=0.5, k=1):
     line = []
     for t in range(len_t):
         sorted_evals = np.sort(e_vals[t])[::-1]
-        alpha = sorted_evals[k-1] * reg
+        alpha = sorted_evals[k - 1] * reg
         line.append(np.sum(e_vals[t] / (e_vals[t] + alpha)))
     return np.array(line)
 
@@ -436,7 +436,7 @@ def compute_neff_hessvar(e_vals, reg=0.5, abs=True):
     len_t = len(e_vals)
     line = []
     for t in range(len_t):
-        alpha = np.abs(-2*e_vals[t].min()*reg)
+        alpha = np.abs(-2 * e_vals[t].min() * reg)
         if abs:
             line.append(np.sum(np.abs(e_vals[t]) / (np.abs(e_vals[t]) + alpha)))
         else:
@@ -471,7 +471,7 @@ def compute_neff_k_pow(e_vals, reg=0.5, abs=True, k=1, pow=0.5):
     line = []
     for t in range(len_t):
         sorted_evals = np.sort(e_vals[t])[::-1]
-        alpha = sorted_evals[k-1]**pow * reg
+        alpha = sorted_evals[k - 1] ** pow * reg
         line.append(np.sum(e_vals[t] / (e_vals[t] + alpha)))
     return np.array(line)
 
@@ -511,9 +511,9 @@ def dk_cos(ma, mb, verbose=False):
     M = ma_norm.T @ mb_norm
     u, s, vh = jnp.linalg.svd(M)
     s = np.clip(s, -1, 1)
-    thetas = jnp.arccos(s) # same dimension
+    thetas = jnp.arccos(s)  # same dimension
     if verbose: print(thetas)
-    return jnp.cos((jnp.sqrt(jnp.sum(thetas**2)) / jnp.sqrt((min(dim_a, dim_b) * (np.pi/2)**2))) * np.pi/2)
+    return jnp.cos((jnp.sqrt(jnp.sum(thetas ** 2)) / jnp.sqrt((min(dim_a, dim_b) * (np.pi / 2) ** 2))) * np.pi / 2)
 
 
 def dk_cos_lin(ma, mb, verbose=False):
@@ -529,9 +529,9 @@ def dk_cos_lin(ma, mb, verbose=False):
     u, s, vh = jnp.linalg.svd(M)
     # if verbose: print("s unclipped", s) # should have no need for clipping now
     s = np.clip(s, -1, 1)
-    thetas = jnp.arccos(s) # same dimension
+    thetas = jnp.arccos(s)  # same dimension
     if verbose: print(s, thetas)
-    return jnp.cos((jnp.sum(thetas**2) / ((min(dim_a, dim_b) * (np.pi/2)**2))) * np.pi/2)
+    return jnp.cos((jnp.sum(thetas ** 2) / ((min(dim_a, dim_b) * (np.pi / 2) ** 2))) * np.pi / 2)
 
 
 def compute_entropy(e_vals, rounding=0, method='kde'):
@@ -560,24 +560,26 @@ def compute_entropy(e_vals, rounding=0, method='kde'):
 
 def tmi_cond_call(a):
     def call(tbm, ind):
-        tbm = jax.lax.cond(a[tbm[0]]>a[tbm[1]], lambda x: jnp.array([x[0] + 1, x[1]]), lambda x: jnp.array([x[0], x[1]-1]), tbm)
+        tbm = jax.lax.cond(a[tbm[0]] > a[tbm[1]], lambda x: jnp.array([x[0] + 1, x[1]]),
+                           lambda x: jnp.array([x[0], x[1] - 1]), tbm)
         return tbm, ind
+
     return call
+
 
 def get_top_mag_inds_jax(a, n=1):
     # get inclusive indices of top magnitude items from a sorted np list
     abs_a = jnp.abs(a)
 
-    tbm = jnp.array([0, len(a)-1])
+    tbm = jnp.array([0, len(a) - 1])
     tmi_cond_cl = tmi_cond_call(abs_a)
     # print(tmi_cond_cl(tbm))
     tbm, _ = jax.lax.scan(tmi_cond_cl, tbm, jnp.arange(n))
     # print(tbm)
-    return int(tbm[0]-1), int(tbm[1]+1)
+    return int(tbm[0] - 1), int(tbm[1] + 1)
 
 
 def get_top_mag_inds(a, n=1):
-
     top = 0
     bottom = len(a) - 1
     for i in range(n):
@@ -585,7 +587,7 @@ def get_top_mag_inds(a, n=1):
             top += 1
         else:
             bottom -= 1
-    return top-1, bottom+1
+    return top - 1, bottom + 1
 
     # top + bottom = len(a) - 1
     # top + len(a) - bottom = n
@@ -595,7 +597,7 @@ def get_top_mag_inds(a, n=1):
 
 def rand_radamacher(shape, rng_key):
     init_vec = jax.random.uniform(rng_key, shape=shape, dtype=np.float32)
-    return ((init_vec<0.5)*2. - 1.)
+    return ((init_vec < 0.5) * 2. - 1.)
 
 
 def mat_mse(mat, verbose=False):
@@ -603,20 +605,20 @@ def mat_mse(mat, verbose=False):
     # we want orient to get the best target_j for each source_i
     best_mse = np.inf
 
-    n = len(mat) # number of sources
-    m = len(mat[0]) # number of targets
+    n = len(mat)  # number of sources
+    m = len(mat[0])  # number of targets
 
     skip_inds = []
     skip_oris = []
-    maxs = np.max(mat, axis=1) # for each source, which target is best
+    maxs = np.max(mat, axis=1)  # for each source, which target is best
 
     for i in range(n):
         if maxs[i] > np.sqrt(2) / 2:
             skip_inds.append(i)
             skip_oris.append(np.argmax(mat[i, :]))
 
-    list_nums = [i for i in range(n) if i not in skip_inds] # list of remainders over all sources
-    iter_nums = [i for i in range(m) if i not in skip_oris] # list iter nums over all targets
+    list_nums = [i for i in range(n) if i not in skip_inds]  # list of remainders over all sources
+    iter_nums = [i for i in range(m) if i not in skip_oris]  # list iter nums over all targets
 
     if verbose:
         # debug
@@ -666,24 +668,24 @@ def mat_mse(mat, verbose=False):
     return best_mse, orient, skip_inds
 
 
-def mat_mse_copy(mat, verbose=False): # working version
+def mat_mse_copy(mat, verbose=False):  # working version
     # mat[i, j] is the sim between source_i and target_j
     # we want orient to get the best target_j for each source_i
     best_mse = np.inf
 
-    n = len(mat) # number of sources
-    m = len(mat[0]) # number of targets
+    n = len(mat)  # number of sources
+    m = len(mat[0])  # number of targets
 
     skip_inds = []
     skip_oris = []
-    maxs = np.max(mat, axis=0) # for each source, which target is best
+    maxs = np.max(mat, axis=0)  # for each source, which target is best
 
     for i in range(n):
         if maxs[i] > np.sqrt(2) / 2:
             skip_inds.append(i)
             skip_oris.append(np.argmax(mat[:, i]))
 
-    list_nums = [i for i in range(m) if i not in skip_oris] # list nums over all targets
+    list_nums = [i for i in range(m) if i not in skip_oris]  # list nums over all targets
 
     if verbose:
         # debug
@@ -730,10 +732,11 @@ def mat_mse_copy(mat, verbose=False): # working version
 
 def moving_average(x, w=1):
     conv = np.convolve(x, np.ones(w), 'valid')
-    return  conv / w
+    return conv / w
+
 
 def normalise(x):
-    return (x-np.min(x))/(np.max(x)-np.min(x))
+    return (x - np.min(x)) / (np.max(x) - np.min(x))
 
 
 def get_peaks(loss, eigvals=None, prominence=0.1, reverse=False):
@@ -756,8 +759,8 @@ def get_peaks(loss, eigvals=None, prominence=0.1, reverse=False):
     else:
         assert eigvals is not None
         rev_peaks = []
-        for i in range(len(peaks)-1):
-            rev_peaks.append(np.argmin(eigvals[peaks[i]:peaks[i+1]])+peaks[i])
+        for i in range(len(peaks) - 1):
+            rev_peaks.append(np.argmin(eigvals[peaks[i]:peaks[i + 1]]) + peaks[i])
         return rev_peaks
 
 
@@ -765,13 +768,13 @@ def get_peaks_eigvals(eigvals, lr=None, prominence=0.1, reverse=False):
     eigvals = np.array(eigvals)
     if not reverse:
         if lr is not None:
-            peaks = np.array(find_peaks(eigvals, prominence=prominence, height=2/lr)[0])
+            peaks = np.array(find_peaks(eigvals, prominence=prominence, height=2 / lr)[0])
         else:
             peaks = np.array(find_peaks(eigvals, prominence=prominence)[0])
         return peaks
     else:
         if lr is not None:
-            peaks = np.array(find_peaks(-eigvals, prominence=prominence, height=-2/lr)[0])
+            peaks = np.array(find_peaks(-eigvals, prominence=prominence, height=-2 / lr)[0])
         else:
             peaks = np.array(find_peaks(-eigvals, prominence=prominence)[0])
         # rev_peaks = []
@@ -782,7 +785,7 @@ def get_peaks_eigvals(eigvals, lr=None, prominence=0.1, reverse=False):
 
 def signif(x, p=3):
     x = np.asarray(x)
-    x_positive = np.where(np.isfinite(x) & (x != 0), np.abs(x), 10**(p-1))
+    x_positive = np.where(np.isfinite(x) & (x != 0), np.abs(x), 10 ** (p - 1))
     mags = 10 ** (p - 1 - np.floor(np.log10(x_positive)))
     return np.round(x * mags) / mags
 
@@ -801,7 +804,7 @@ def reject_outliers(data, m=100., n_ma=0.):
 
 
 def max_dk(a, b, n):
-    return max(dk_cos(a[:, :n], b,), dk_cos(a, b[:, :n]))
+    return max(dk_cos(a[:, :n], b, ), dk_cos(a, b[:, :n]))
 
 
 def cifar5k_lr_fix(counter):
@@ -823,6 +826,7 @@ def cifar5k_lr_fix(counter):
         else:
             raise KeyError
 
+
 def optim_to_option(optim):
     if optim == 'asam':
         return 'sam'
@@ -830,6 +834,7 @@ def optim_to_option(optim):
         return 'sam'
     elif optim == 'looksam':
         return 'sam'
+
 
 def compute_bar_text(metrics_history, epoch):
     bar_text = None
@@ -862,3 +867,19 @@ def compute_bar_text(metrics_history, epoch):
         pass
 
     return bar_text
+
+
+def deep_merge(base: ConfigDict, override: ConfigDict) -> ConfigDict:
+    merged = ConfigDict(base.to_dict())  # start with a copy of base
+
+    for key, override_val in override.items():
+        if (
+                key in merged
+                and isinstance(merged[key], ConfigDict)
+                and isinstance(override_val, ConfigDict)
+        ):
+            merged[key] = deep_merge(merged[key], override_val)
+        else:
+            merged[key] = override_val
+
+    return merged

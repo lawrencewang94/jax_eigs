@@ -364,63 +364,58 @@ def get_sgd_optimizer(
     b2: float,
     b3: Optional[float] = None,
     weight_decay: float = 0.0,
+    norm_clip=None,
     verbose: bool = False,
     debug_one: bool = False,  # Not used yet, but kept for compatibility
 ) -> base.GradientTransformation:
+    optims = []
+
+    if norm_clip is not None:
+        optims.append(optax.clip_by_global_norm(norm_clip))
+
     if b1 == 0 and b2 == 0:
         if verbose:
             print("Using SGD")
         if weight_decay > 0:
-            return optax.chain(
-                optax.add_decayed_weights(weight_decay),
-                optax.sgd(learning_rate)
-            )
-        return optax.sgd(learning_rate)
+            optims.append(optax.add_decayed_weights(weight_decay))
+        optims.append(optax.sgd(learning_rate))
 
     elif b1 != 0 and b2 == 0:
         if verbose:
             print("Using Adam (momentum only)")
         if weight_decay > 0:
-            return optax.adamw(
-                learning_rate, b1=b1, b2=0, eps=0., eps_root=1., weight_decay=weight_decay
-            )
-        return optax.adam(
-            learning_rate, b1=b1, b2=0, eps=0., eps_root=1.
-        )
-
-    # Determine custom Adam mode from b3
-    if b3 is not None:
-        if b3 == 0:
-            mode = "=="
-        elif b3 > 0:
-            mode = ">="
-        elif b3 < 0:
-            mode = "<="
+            optims.append(optax.adamw(learning_rate, b1=b1, b2=0, eps=0., eps_root=1., weight_decay=weight_decay))
         else:
-            raise ValueError(f"Invalid b3 value: {b3}")
-        if verbose:
-            print(f"Using custom bounded Adam mode: {mode}")
-        return oab.adam_oab(
-            mode=mode,
-            learning_rate=learning_rate,
-            b1=b1,
-            b2=b2,
-            eps=1e-8,
-            eps_root=0.0,
-            weight_decay=weight_decay,
-            nesterov=False
-        )
+            optims.append(optax.adam(learning_rate, b1=b1, b2=0, eps=0., eps_root=1.))
 
-    if verbose:
-        print("Using standard Adam")
-    if weight_decay > 0:
-        return optax.adamw(
-            learning_rate, b1=b1, b2=b2, weight_decay=weight_decay
-        )
-    return optax.adam(
-        learning_rate, b1=b1, b2=b2
-    )
+    elif b2 != 0:
+        # Determine custom Adam mode from b3
+        if b3 != 0.:
+            if b3 > 0:
+                mode = ">="
+            elif b3 < 0:
+                mode = "<="
+            if verbose:
+                print(f"Using custom bounded Adam mode: {mode}")
+            optims.append(oab.adam_oab(
+                mode=mode,
+                learning_rate=learning_rate,
+                b1=b1,
+                b2=b2,
+                eps=1e-8,
+                eps_root=0.0,
+                weight_decay=weight_decay,
+                nesterov=False
+            ))
+        else:
+            if verbose:
+                print("Using standard Adam")
+            if weight_decay > 0:
+                optims.append(optax.adamw(learning_rate, b1=b1, b2=b2, weight_decay=weight_decay))
+            else:
+                optims.append(optax.adam(learning_rate, b1=b1, b2=b2))
 
+    return optax.chain(*optims)
 
 from typing import Any, Callable
 

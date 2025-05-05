@@ -3,6 +3,7 @@ from ml_collections import ConfigDict
 
 def make_fixed_configs():
     import jax.numpy as jnp
+    import jax
     import optax
     # data configs
     data_config = ConfigDict(
@@ -10,7 +11,7 @@ def make_fixed_configs():
             n_train=2335,  # 2335, 4670, 9340, 2391884
             n_eval=276,  # 283287 total
             n_hess=5120,
-            seq_len=1024,
+            seq_len=512,
             stride=1024,  # if half of seq len, then x2 data; 1024 is total sq len
             use_mse=False,
         )
@@ -21,15 +22,15 @@ def make_fixed_configs():
         dict(
             arch_name='gpt2',
             vocab_size=50257,
-            hidden_size=768,
-            num_layers=12,
-            num_heads=12,
+            hidden_size=768,  # 768 for small, 512 for mini
+            num_layers=12,  # 12 for small, 4 for mini
+            num_heads=12,  # 12 for small, 8 for mini
             head_dim=64,
             mlp_expansion=4,
             dropout_rate=0.1,
-            max_seq_len=1024,
+            max_seq_len=512,  # 1024 for small, 512 for mini
             num_outputs=50257,
-            dtype=jnp.float32,
+            dtype=jax.dtypes.bfloat16,  # jnp.float32, jax.dtypes.bfloat16
             causal_mask=True,
             softmax_dtype=jnp.float32,
             remat=[],  # "MLP", "Attn"

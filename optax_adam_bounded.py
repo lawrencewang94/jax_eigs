@@ -194,12 +194,12 @@ def adam_oab(
     if mode not in mode_to_transform:
         raise ValueError(f"Invalid mode: {mode}. Choose from {list(mode_to_transform)}")
 
-    transforms = [
-        mode_to_transform[mode](
+    transforms = []
+
+    transforms.append(mode_to_transform[mode](
             b1=b1, b2=b2, eps=eps, eps_root=eps_root,
             mu_dtype=mu_dtype, nesterov=nesterov
-        )
-    ]
+        ))
 
     if weight_decay > 0:
         transforms.append(optax.add_decayed_weights(weight_decay, mask))
