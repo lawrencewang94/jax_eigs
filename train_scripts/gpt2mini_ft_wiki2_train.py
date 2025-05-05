@@ -118,7 +118,7 @@ def train_model(var_cfg, datasets=None, resume=False, n_workers=8):
     from flax import struct  # Flax dataclasses
     from clu import metrics
     from perplexity import Perplexity
-    from gpt2_utils import Transformer, load_params, token_predictions
+    from gpt2_utils import Transformer, load_params_gpt2small, token_predictions
     from flax.training import train_state  # Useful dataclass to keep train state
 
     fixed_cfg = make_fixed_configs()
@@ -328,7 +328,7 @@ def train_model(var_cfg, datasets=None, resume=False, n_workers=8):
 
     if cfg.log.demo_outputs: token_predictions(state, sample_batch)
     # load GPT2 weights
-    state = load_params(cfg, state)
+    state = load_params_gpt2small(cfg, state)
     if cfg.log.demo_outputs: token_predictions(state, sample_batch)
 
     cbs = __get_cbs__(state)

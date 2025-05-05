@@ -6,10 +6,10 @@ import functools
 from flax import linen as nn  # Linen API
 from ml_collections import ConfigDict
 
-from transformers import FlaxGPT2LMHeadModel, GPT2Tokenizer
+from transformers import FlaxGPT2LMHeadModel, GPT2Tokenizer, AutoModelForCausalLM
 from flax.core import freeze, unfreeze
 
-def load_params(config, state):
+def load_params_gpt2small(config, state):
     hf_model = FlaxGPT2LMHeadModel.from_pretrained("gpt2", dtype=jnp.float32)
     hf_params = unfreeze(hf_model.params)
 
@@ -30,44 +30,6 @@ def load_params(config, state):
         block[attn_key]['LayerNorm_0']['bias'] = hf_block['ln_1']['bias']
         block[mlp_key]['LayerNorm_0']['scale'] = hf_block['ln_2']['scale']
         block[mlp_key]['LayerNorm_0']['bias'] = hf_block['ln_2']['bias']
-
-        # --- TRY 1
-        # # Attention QKV and output projection
-        # qkv_kernel = hf_block['attn']['c_attn']['kernel']  # shape [768, 3*768]
-        # qkv_bias = hf_block['attn']['c_attn']['bias']
-        # qkv_kernel = np.reshape(qkv_kernel, (config.model.hidden_size, config.model.num_heads, 3 * config.model.head_dim))
-        # q_kernel, k_kernel, v_kernel = np.split(qkv_kernel, 3, axis=-1)
-
-        # qkv_bias = np.reshape(qkv_bias, (config.model.num_heads, 3 * config.model.head_dim))
-        # q_bias, k_bias, v_bias = np.split(qkv_bias, 3, axis=-1)
-
-        # block[attn_key]['DenseGeneral_0']['kernel'] = np.concatenate([q_kernel, k_kernel, v_kernel], axis=-1)
-        # block[attn_key]['DenseGeneral_0']['bias'] = np.concatenate([q_bias, k_bias, v_bias], axis=-1)
-
-        # block[attn_key]['Dense_0']['kernel'] = hf_block['attn']['c_proj']['kernel']
-        # block[attn_key]['Dense_0']['bias'] = hf_block['attn']['c_proj']['bias']
-
-        # # MLP
-        # block[mlp_key]['Dense_0']['kernel'] = hf_block['mlp']['c_fc']['kernel']
-        # block[mlp_key]['Dense_0']['bias'] = hf_block['mlp']['c_fc']['bias']
-        # block[mlp_key]['Dense_1']['kernel'] = hf_block['mlp']['c_proj']['kernel']
-        # block[mlp_key]['Dense_1']['bias'] = hf_block['mlp']['c_proj']['bias']
-
-        # --- TRY 2
-
-        # # Attention: QKV projection (c_attn)
-        # block[attn_key]['DenseGeneral_0']['kernel'] = hf_block['attn']['c_attn']['kernel'].T
-        # block[attn_key]['DenseGeneral_0']['bias'] = hf_block['attn']['c_attn']['bias']
-
-        # # Attention output (c_proj)
-        # block[attn_key]['Dense_0']['kernel'] = hf_block['attn']['c_proj']['kernel'].T
-        # block[attn_key]['Dense_0']['bias'] = hf_block['attn']['c_proj']['bias']
-
-        # # MLP
-        # block[mlp_key]['Dense_0']['kernel'] = hf_block['mlp']['c_fc']['kernel'].T
-        # block[mlp_key]['Dense_0']['bias'] = hf_block['mlp']['c_fc']['bias']
-        # block[mlp_key]['Dense_1']['kernel'] = hf_block['mlp']['c_proj']['kernel'].T
-        # block[mlp_key]['Dense_1']['bias'] = hf_block['mlp']['c_proj']['bias']
 
         # --- Try 3
 
@@ -108,6 +70,65 @@ def load_params(config, state):
 
     return state
 
+
+
+def load_params_gpt2mini(state, config):
+    pt_model = AutoModelForCausalLM.from_pretrained("erwanf/gpt2-mini")
+    pt_state = pt_model.transformer.state_dict()
+
+    params = state.params
+
+    # Token and positional embeddings
+    params['token_embed']['embedding'] = pt_state['wte.weight'].cpu().numpy()
+    params['pos_emb'] = pt_state['wpe.weight'].cpu().numpy()
+
+    for i in range(config.num_layers):
+        block = params[f'block_{i}']
+        attn_key = "CheckpointAttentionBlock_0" if "CheckpointAttentionBlock_0" in block else "AttentionBlock_0"
+        mlp_key = "CheckpointMLPBlock_0" if "CheckpointMLPBlock_0" in block else "MLPBlock_0"
+
+        # LayerNorms
+        block[attn_key]['LayerNorm_0']['scale'] = pt_state[f'h.{i}.ln_1.weight'].cpu().numpy()
+        block[attn_key]['LayerNorm_0']['bias'] = pt_state[f'h.{i}.ln_1.bias'].cpu().numpy()
+        block[mlp_key]['LayerNorm_0']['scale'] = pt_state[f'h.{i}.ln_2.weight'].cpu().numpy()
+        block[mlp_key]['LayerNorm_0']['bias'] = pt_state[f'h.{i}.ln_2.bias'].cpu().numpy()
+
+        # Attention QKV projection
+        qkv = pt_state[f'h.{i}.attn.c_attn.weight'].cpu().numpy()  # (hidden, 3*hidden)
+        qkv_bias = pt_state[f'h.{i}.attn.c_attn.bias'].cpu().numpy()  # (3*hidden,)
+
+        qkv = qkv.reshape(config.hidden_size, 3, config.num_heads, config.head_dim)
+        qkv = np.transpose(qkv, (0, 2, 1, 3)).reshape(config.hidden_size, config.num_heads, 3 * config.head_dim)
+
+        qkv_bias = qkv_bias.reshape(3, config.num_heads, config.head_dim)
+        qkv_bias = np.transpose(qkv_bias, (1, 0, 2)).reshape(config.num_heads, 3 * config.head_dim)
+
+        block[attn_key]['DenseGeneral_0']['kernel'] = qkv
+        block[attn_key]['DenseGeneral_0']['bias'] = qkv_bias
+
+        # Attention output projection
+        block[attn_key]['Dense_0']['kernel'] = pt_state[f'h.{i}.attn.c_proj.weight'].cpu().numpy()
+        block[attn_key]['Dense_0']['bias'] = pt_state[f'h.{i}.attn.c_proj.bias'].cpu().numpy()
+
+        # MLP
+        block[mlp_key]['Dense_0']['kernel'] = pt_state[f'h.{i}.mlp.c_fc.weight'].cpu().numpy()
+        block[mlp_key]['Dense_0']['bias'] = pt_state[f'h.{i}.mlp.c_fc.bias'].cpu().numpy()
+        block[mlp_key]['Dense_1']['kernel'] = pt_state[f'h.{i}.mlp.c_proj.weight'].cpu().numpy()
+        block[mlp_key]['Dense_1']['bias'] = pt_state[f'h.{i}.mlp.c_proj.bias'].cpu().numpy()
+
+    # Final LayerNorm
+    params['LayerNorm_0']['scale'] = pt_state['ln_f.weight'].cpu().numpy()
+    params['LayerNorm_0']['bias'] = pt_state['ln_f.bias'].cpu().numpy()
+
+    state = state.replace(params=params)
+
+    # Optional sanity check
+    assert np.allclose(
+        state.params['token_embed']['embedding'],
+        pt_state['wte.weight'].cpu().numpy()
+    )
+
+    return state
 
 class MLPBlock(nn.Module):
     config: ConfigDict
@@ -216,7 +237,7 @@ class Transformer(nn.Module):
         logits = x @ embed.embedding.T
         return logits.astype(jnp.float32)
 
-def token_predictions(state, sample_batch, mode='col'):
+def token_predictions(state, sample_batch, mode='col', prefix='gpt2'):
 
     from transformers import GPT2Tokenizer
 
@@ -226,7 +247,7 @@ def token_predictions(state, sample_batch, mode='col'):
 
     token_ids_out = jnp.argmax(nn.softmax(sample_out), axis=-1)  # shape: [batch_size, seq_len]
 
-    tokenizer = GPT2Tokenizer.from_pretrained("gpt2")
+    tokenizer = GPT2Tokenizer.from_pretrained(prefix)
 
     decoded_in = np.array(tokenizer.batch_decode(token_ids_in, skip_special_tokens=True)).flatten()
     decoded_out = np.array(tokenizer.batch_decode(token_ids_out, skip_special_tokens=True))
