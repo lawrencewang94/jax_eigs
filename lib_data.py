@@ -12,24 +12,74 @@ from datasets import load_dataset, load_from_disk
 from transformers import AutoTokenizer
 import os
 from itertools import chain
+import tiktoken
+from tqdm import tqdm
 
 data_dir = "data/"
 
 
+class MemmapDataLoader:
+    def __init__(self, path, block_size, batch_size, shuffle=True, seed=None):
+        self.data = np.memmap(path, dtype=np.uint16, mode='r')
+        self.block_size = block_size
+        self.batch_size = batch_size
+        self.shuffle = shuffle
+        self.seed = seed
+        self.rng = np.random.default_rng(seed)
+        self.length = len(self.data)
+        self.indices = None
+        self._reset_indices()
+
+    def _reset_indices(self):
+        max_start = self.length - self.block_size - 1
+        self.indices = np.arange(max_start)
+        if self.shuffle:
+            self.rng.shuffle(self.indices)
+        self.current = 0
+
+    def __iter__(self):
+        self._reset_indices()
+        return self
+
+    def __next__(self):
+        if self.current + self.batch_size > len(self.indices):
+            raise StopIteration
+
+        batch_ix = self.indices[self.current:self.current + self.batch_size]
+        self.current += self.batch_size
+
+        x = np.stack([self.data[i : i + self.block_size].astype(np.int32) for i in batch_ix])
+        y = np.stack([self.data[i + 1 : i + 1 + self.block_size].astype(np.int32) for i in batch_ix])
+        return x, y
+
+
+# def numpy_collate(batch):
+#     if isinstance(batch[0], np.ndarray):
+#         # print("collate option A")
+#         return np.stack(batch)
+#     elif isinstance(batch[0], torch.Tensor):
+#         # print("collate option B")
+#         return np.stack(batch)
+#     elif isinstance(batch[0], (tuple,list)):
+#         # print("collate option C")
+#         transposed = zip(*batch)
+#         return [numpy_collate(samples) for samples in transposed]
+#     else:
+#         # print("collate option D")
+#         return np.array(batch)
+
 def numpy_collate(batch):
-    if isinstance(batch[0], np.ndarray):
-        # print("collate option A")
+    if isinstance(batch[0], (tuple, list)):
+        # Optimized path for list of (x, y)
+        x, y = zip(*batch)
+        return np.stack(x), np.stack(y)
+    elif isinstance(batch[0], np.ndarray):
         return np.stack(batch)
     elif isinstance(batch[0], torch.Tensor):
-        # print("collate option B")
         return np.stack(batch)
-    elif isinstance(batch[0], (tuple,list)):
-        # print("collate option C")
-        transposed = zip(*batch)
-        return [numpy_collate(samples) for samples in transposed]
     else:
-        # print("collate option D")
         return np.array(batch)
+
 
 
 class NumpyLoader(DataLoader):
@@ -52,6 +102,23 @@ class NumpyLoader(DataLoader):
         self.name=ood_name
 
 
+def jnp_batch_generator(dataset, batch_size, shuffle=True):
+    indices = list(range(len(dataset)))
+    if shuffle:
+        np.random.shuffle(indices)
+
+    for start_idx in range(0, len(indices), batch_size):
+        batch_indices = indices[start_idx:start_idx + batch_size]
+        batch = [dataset[i] for i in batch_indices]
+
+        if isinstance(batch[0], (tuple, list)):
+            x, y = zip(*batch)
+            yield jnp.stack(x), jnp.stack(y)
+        else:
+            yield jnp.stack(batch)
+
+
+
 class Dataset(torch.utils.data.Dataset):
     #Characterizes a dataset for PyTorch
     def __init__(self, xs, ys):
@@ -68,6 +135,57 @@ class Dataset(torch.utils.data.Dataset):
         y = self.targets[index]
 
         return X, y
+
+#
+# class BinDataset(torch.utils.data.Dataset):
+#     def __init__(self, bin_path, block_size):
+#         self.bin_path = bin_path
+#         self.block_size = block_size
+#         self.data = None  # Will be initialized in worker
+#
+#     def _lazy_init(self):
+#         if self.data is None:
+#             print(f"[PID {os.getpid()}] opening memmap for {self.bin_path}")
+#             self.data = np.memmap(self.bin_path, dtype=np.uint16, mode="r")
+#
+#     def __len__(self):
+#         self._lazy_init()
+#         return len(self.data) - self.block_size
+#
+#     def __getitem__(self, idx):
+#         self._lazy_init()
+#         chunk = self.data[idx : idx + self.block_size + 1]
+#         return chunk[:-1].astype(np.int32), chunk[1:].astype(np.int32)
+
+
+class BinDataset(torch.utils.data.Dataset):
+    def __init__(self, bin_path, block_size):
+        self.bin_path = bin_path
+        self.block_size = block_size
+        self.data = None  # Will be lazy-initialized
+
+        # Load precomputed length
+        len_path = bin_path.replace(".bin", ".len")
+        if os.path.exists(len_path):
+            with open(len_path, "r") as f:
+                self._length = int(f.read())
+        else:
+            self._length = None  # fallback to lazy
+
+    def _lazy_init(self):
+        if self.data is None:
+            self.data = np.memmap(self.bin_path, dtype=np.uint16, mode="r")
+
+    def __len__(self):
+        if self._length is not None:
+            return self._length
+        self._lazy_init()
+        return len(self.data) - self.block_size
+
+    def __getitem__(self, idx):
+        self._lazy_init()
+        chunk = self.data[idx : idx + self.block_size + 1]
+        return chunk[:-1].astype(np.int32), chunk[1:].astype(np.int32)
 
 
 class FlattenAndCast(object):
@@ -986,3 +1104,173 @@ def get_wikitext2_dataset(tokenizer_name="gpt2", block_size=128,
     hess_dataset = train_dataset
 
     return train_dataset, test_dataset, hess_dataset
+
+
+def get_wikitext103_dataset(tokenizer_name="gpt2", block_size=128,
+                            max_train_samples=500000,
+                            max_eval_samples=10000,
+                            max_hess_samples=5000,
+                            stride=None,
+                            cache_dir="./cached_wikitext103"):
+
+    os.makedirs(cache_dir, exist_ok=True)
+    tokenized_path = os.path.join(cache_dir, "tokenized_" + tokenizer_name)
+
+    if os.path.exists(tokenized_path):
+        print("Loading tokenized dataset from disk...", tokenized_path)
+        tokenized_dataset = load_from_disk(tokenized_path)
+    else:
+        print("Tokenizing raw Wikitext-103...")
+        tokenizer = AutoTokenizer.from_pretrained(tokenizer_name)
+        tokenizer.pad_token = tokenizer.eos_token
+        raw_dataset = load_dataset("wikitext", "wikitext-103-raw-v1")
+
+        def tokenize_fn(examples):
+            return tokenizer(examples["text"], return_attention_mask=False)
+
+        tokenized_dataset = raw_dataset.map(tokenize_fn, batched=True, remove_columns=["text"])
+        tokenized_dataset.save_to_disk(tokenized_path)
+        print("Saved tokenized dataset to:", tokenized_path)
+
+    def build_lm_dataset(tok_data, max_chunks, block_size, stride=None):
+        if stride is None:
+            stride = block_size
+        all_tokens = list(chain.from_iterable(tok_data["input_ids"]))
+        total_tokens = len(all_tokens)
+        n_chunks = min((total_tokens - block_size) // stride + 1, max_chunks)
+        xs, ys = [], []
+        for i in range(n_chunks):
+            start = i * stride
+            end = start + block_size
+            chunk = all_tokens[start:end]
+            if len(chunk) == block_size:
+                x = chunk[:-1]
+                y = chunk[1:]
+                xs.append(np.array(x, dtype=np.int32))
+                ys.append(np.array(y, dtype=np.int32))
+        return Dataset(xs, ys)
+
+    print("Building LM datasets...")
+    train_dataset = build_lm_dataset(tokenized_dataset["train"], max_train_samples, block_size, stride=stride)
+    test_dataset = build_lm_dataset(tokenized_dataset["validation"], max_eval_samples, block_size)
+    hess_dataset = train_dataset
+
+    return train_dataset, test_dataset, hess_dataset
+
+def preprocess_openwebtext(
+        output_dir="./tokenized_openwebtext",
+        split_val_fraction=0.0005,
+        dtype=np.uint16,
+        seed=0,
+        num_proc=None,
+        block_size=1024  # needed to compute usable sequence count
+):
+    """
+    Preprocess OpenWebText using tiktoken and save tokenized data to .bin + .len files.
+    """
+    os.makedirs(output_dir, exist_ok=True)
+
+    compute_flag = False
+
+    for split in ['train', 'val']:
+        filename = os.path.join(output_dir, f"{split}.bin")
+        len_path = filename.replace(".bin", ".len")
+        if os.path.exists(filename) and os.path.exists(len_path):
+            print(f"{filename} already exists. Skipping...")
+        else:
+            compute_flag = True
+
+    if not compute_flag:
+        print("Dataset Cache Exists!")
+        return
+
+    print("Loading OpenWebText...")
+    dataset = load_dataset("openwebtext")
+    split_dataset = dataset["train"].train_test_split(test_size=split_val_fraction, seed=seed)
+    split_dataset["val"] = split_dataset.pop("test")
+
+    print("Loading tiktoken GPT-2 tokenizer...")
+    enc = tiktoken.get_encoding("gpt2")
+
+    def tokenize(example):
+        ids = enc.encode_ordinary(example["text"])
+        ids.append(enc.eot_token)
+        return {
+            "ids": ids,
+            "len": len(ids)
+        }
+
+    if num_proc is None:
+        import multiprocessing
+        num_proc = max(2, multiprocessing.cpu_count() // 2)
+
+    tokenized = {}
+    for split in ["train", "val"]:
+        print(f"Tokenizing {split} split...")
+        tokenized[split] = split_dataset[split].map(
+            tokenize,
+            remove_columns=["text"],
+            desc=f"Tokenizing {split}",
+            num_proc=num_proc,
+        )
+
+    for split, dset in tokenized.items():
+        filename = os.path.join(output_dir, f"{split}.bin")
+        len_path = filename.replace(".bin", ".len")
+
+        total_len = np.sum(dset["len"])
+        print(f"Writing {filename} with {total_len} tokens...")
+
+        arr = np.memmap(filename, dtype=dtype, mode="w+", shape=(total_len,))
+        idx = 0
+        for example in tqdm(dset, desc=f"Writing {split}"):
+            arr[idx : idx + example["len"]] = example["ids"]
+            idx += example["len"]
+        arr.flush()
+
+        # Save usable number of samples (not raw token count)
+        usable_sequences = (total_len - block_size)
+        with open(len_path, "w") as f:
+            f.write(str(usable_sequences))
+
+    print("Preprocessing complete. Files saved to:", output_dir)
+
+
+class FastMemmapDataLoader:
+    def __init__(self, path, block_size, batch_size, buffer_size=10_000_000, shuffle=True, seed=None):
+        self.data_all = np.memmap(path, dtype=np.uint16, mode='r')
+        self.total_len = len(self.data_all)
+        self.block_size = block_size
+        self.batch_size = batch_size
+        self.shuffle = shuffle
+        self.seed = seed
+        self.buffer_size = buffer_size
+        self.rng = np.random.default_rng(seed)
+        self._load_buffer()
+
+    def _load_buffer(self):
+        # Load a random window of `buffer_size + block_size + 1` into memory
+        start = self.rng.integers(0, self.total_len - self.buffer_size - self.block_size - 1)
+        end = start + self.buffer_size + self.block_size + 1
+        self.buffer = np.array(self.data_all[start:end])  # Materialize in RAM
+        self.buffer_offset = start
+        self.max_start = self.buffer_size
+        self.indices = np.arange(self.max_start)
+        if self.shuffle:
+            self.rng.shuffle(self.indices)
+        self.current = 0
+
+    def __iter__(self):
+        self._load_buffer()
+        return self
+
+    def __next__(self):
+        if self.current + self.batch_size > self.max_start:
+            raise StopIteration
+
+        batch_ix = self.indices[self.current:self.current + self.batch_size]
+        self.current += self.batch_size
+
+        x = np.stack([self.buffer[i : i + self.block_size].astype(np.int32) for i in batch_ix])
+        y = np.stack([self.buffer[i + 1 : i + 1 + self.block_size].astype(np.int32) for i in batch_ix])
+        return x, y

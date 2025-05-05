@@ -44,7 +44,7 @@ def make_fixed_configs():
             eval_bs=8,
             force_fb=False,
             grad_accum=1,
-            n_epochs=60,
+            n_epochs=30,
             warmup_steps=2,
             loss_fn=optax.softmax_cross_entropy_with_integer_labels,
             b1=0.9,
@@ -54,7 +54,7 @@ def make_fixed_configs():
             sam_rho=0.,
             sam_sync=1,
             wd=0.01,
-            gn_clip=1.,
+            gn_clip=None,
         )
     )
     # log configs
@@ -364,5 +364,7 @@ def train_model(var_cfg, datasets=None, resume=False, n_workers=8):
         eigvals = utils.load_thing("traj/" + experiment_name + "/eigvals.pkl")
         metrics_history['eigvals'] = eigvals
         out_str += f"sharp: {metrics_history['eigvals'][-1][0]}"
+
+    metrics_history['experiment_name'] = experiment_name
 
     return out_str, metrics_history, datasets

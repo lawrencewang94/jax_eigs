@@ -22,9 +22,12 @@ def make_configs():
     # gn_clip_list = [None, 1.]
     # s = [seed_list, wd_list, gn_clip_list]
 
-    stride_k_list = [1, 2, 4]
-    b2_list = [0.99, 0.999]
-    s = [seed_list, stride_k_list, b2_list]
+    # stride_k_list = [1, 2, 4]
+    # b2_list = [0.99, 0.999]
+    # s = [seed_list, stride_k_list, b2_list]
+
+    b3_list = [0., -1., -0.1, -0.01,]
+    s = [seed_list, b3_list]
 
     hyp_list = list(itertools.product(*s))
 
@@ -38,14 +41,7 @@ def make_configs():
 
         #--------------------------------
         optim_config.seed = hyp[0]
-
-        data_config.stride = int(1024/hyp[1])
-        data_config.n_train = 2335*hyp[1]
-        optim_config.b2 = hyp[2]
-        optim_config.n_epochs = 60
-
-        # optim_config.wd = hyp[1]
-        # optim_config.gn_clip = hyp[2]
+        optim_config.b3 = hyp[1]
 
         cfg = ConfigDict(
             dict(
@@ -87,16 +83,11 @@ def do_job(tasks_to_accomplish, tasks_that_are_done, job):
 
             out_str, mh, datasets = job(task, datasets, resume=False)
             print(out_str)
-            # print(mh)
+            print(mh['experiment_name'])
             print("Train Perp")
             print(np.array(list(mh['train_perplexity'])))
             print("Test Perp")
             print(np.array(list(mh['test_perplexity'])))
-            print("Train Acc")
-            print(np.array(list(mh['train_accuracy'])))
-            print("Test Acc")
-            print(np.array(list(mh['test_accuracy'])))
-            #
             time.sleep(0.2)
 
         except queue.Empty:

@@ -91,7 +91,7 @@ def _get_train_jits(loss_fn, option=""):
         return state
 
     @jax.jit
-    def _get_grads_bn(state, batch, rng):
+    def _get_grads_bn(state, batch):
         rng, do_rng = jax.random.split(state.rng)
 
         def get_loss(params):
@@ -116,7 +116,7 @@ def _get_train_jits(loss_fn, option=""):
         return state
 
     @jax.jit
-    def _train_step_sam(state, batch, rng):
+    def _train_step_sam(state, batch):
         rng, do_rng = jax.random.split(state.rng)
 
         def get_loss(params):
@@ -142,7 +142,7 @@ def _get_train_jits(loss_fn, option=""):
         return state
 
     @jax.jit
-    def _get_grads_sam(state, batch, rng):
+    def _get_grads_sam(state, batch):
         rng, do_rng = jax.random.split(state.rng)
 
         def get_loss(params):
@@ -178,7 +178,7 @@ def _get_train_jits(loss_fn, option=""):
 
 def train_model(state, model, loss_fn, metrics_history, n_epochs, loaders, name, callbacks=[], option="",
                 tqdm_over_epochs=True, tqdm_over_batch=False, force_fb=False, verbose=False,
-                tqdm_maxinterval=1800, eval_freq=1, gradient_accumulation=1, return_state=False):
+                tqdm_maxinterval=1800, eval_freq=1, gradient_accumulation=1, return_state=False, steps_not_epochs=False):
     '''
     # check stuff, define stuff, make folders,
     # set up loops
@@ -232,7 +232,7 @@ def train_model(state, model, loss_fn, metrics_history, n_epochs, loaders, name,
     def _tree_add(tree_left, tree_right):
         """Computes tree_left + tree_right."""
         def add(x, y):
-            return x + y / len(train_bar)
+            return x + y
 
         return jax.tree.map(add, tree_left, tree_right)
 
@@ -243,8 +243,13 @@ def train_model(state, model, loss_fn, metrics_history, n_epochs, loaders, name,
     _train_step, _get_grads, _compute_metrics = _get_train_jits(loss_fn, option=option)
 
     # compute metrics at epoch 0
-    for batch in train_bar:
+    if steps_not_epochs:
+        train_iter = iter(train_loader)
+        batch = next(train_iter)
         state = _compute_metrics(state=state, batch=batch)
+    else:
+        for batch in train_bar:
+            state = _compute_metrics(state=state, batch=batch)
     for metric, value in state.metrics.compute().items():  # compute metrics
         metrics_history[f'train_{metric}'].append(value)  # record metrics
     state = state.replace(metrics=state.metrics.empty())  # reset train_metrics for next training epoch
@@ -265,77 +270,113 @@ def train_model(state, model, loss_fn, metrics_history, n_epochs, loaders, name,
         if epoch == 0:
             bar_text = utils.compute_bar_text(metrics_history, epoch)
             epoch_bar.set_description(bar_text)
-        # ---------------------------------------
-        # train
-        # ---------------------------------------
 
-        if n_grad_accum == 1:
-            # running minibatch GD
-            for batch in train_bar:
-                state = _train_step(state, batch)  # get updated train state (which contains the updated parameters)
-                state = _compute_metrics(state=state, batch=batch)  # aggregate batch metrics
-            for metric, value in state.metrics.compute().items():  # compute metrics
-                metrics_history[f'train_{metric}'].append(value)  # record metrics
-            state = state.replace(metrics=state.metrics.empty())  # reset train_metrics for next training epoch
+        # ---------------------------------------
+        # train by timesteps
+        # ---------------------------------------
+        if steps_not_epochs:
 
+            # get batch
+            try:
+                batch = next(train_iter)
+            except StopIteration:
+                # Reload buffer if using a streaming loader
+                train_iter = iter(train_loader)
+                batch = next(train_iter)
+
+            # compute gradients
+            if n_grad_accum == 1:
+                state = _train_step(state, batch)
+                state = _compute_metrics(state=state, batch=batch)
+            else:
+                accum_counter = 0
+                grads = _tree_zeros_like(state.params)
+
+                while accum_counter < n_grad_accum:
+                    try:
+                        batch = next(train_iter)
+                        state, batch_grads = _get_grads(state, batch)  # get updated train state (which contains the updated parameters)
+                        grads = _tree_add(grads, batch_grads)
+                        accum_counter += 1
+
+                        state = _compute_metrics(state=state, batch=batch)
+
+                    except StopIteration:
+                        # Reload buffer if using a streaming loader
+                        train_iter = iter(train_loader)
+                        if accum_counter > 0:
+                            grads = _tree_div(grads, accum_counter)
+                            state = state.apply_gradients(grads=grads)
+                        break
+
+        # ---------------------------------------
+        # train by epochs
+        # ---------------------------------------
         else:
-            grads = _tree_zeros_like(state.params)
-            accum_counter = 0
-
-            for batch in train_bar:
-                state, batch_grads = _get_grads(state, batch)  # get updated train state (which contains the updated parameters)
-                grads = _tree_add(grads, batch_grads)
-                accum_counter += 1
-
-                if accum_counter == n_grad_accum:
-                    grads = _tree_div(grads, accum_counter)
-                    state = state.apply_gradients(grads=grads)
-                    grads = _tree_zeros_like(state.params)
-                    accum_counter = 0
-
-            # apply leftover gradients
-            if accum_counter > 0:
-                grads = _tree_div(grads, accum_counter)
-                state = state.apply_gradients(grads=grads)
+            if n_grad_accum == 1:
+                # running minibatch GD
+                for batch in train_bar:
+                    state = _train_step(state, batch)  # get updated train state (which contains the updated parameters)
+                    state = _compute_metrics(state=state, batch=batch)  # aggregate batch metrics
+            else:
+                grads = _tree_zeros_like(state.params)
                 accum_counter = 0
 
-            for batch in train_bar:
-                state = _compute_metrics(state=state, batch=batch)
-            for metric, value in state.metrics.compute().items():  # compute metrics
-                metrics_history[f'train_{metric}'].append(value)  # record metrics
-            state = state.replace(metrics=state.metrics.empty())  # reset train_metrics for next training epoch
+                for batch in train_bar:
+                    state, batch_grads = _get_grads(state, batch)  # get updated train state (which contains the updated parameters)
+                    grads = _tree_add(grads, batch_grads)
+                    accum_counter += 1
+                    state = _compute_metrics(state=state, batch=batch)
+
+                    if accum_counter == n_grad_accum:
+                        grads = _tree_div(grads, accum_counter)
+                        state = state.apply_gradients(grads=grads)
+                        grads = _tree_zeros_like(state.params)
+                        accum_counter = 0
+
+                # apply leftover gradients
+                if accum_counter > 0:
+                    grads = _tree_div(grads, accum_counter)
+                    state = state.apply_gradients(grads=grads)
 
         # ---------------------------------------
-        # callbacks
+        # compute training metrics
+        # ---------------------------------------
+        for metric, value in state.metrics.compute().items():  # compute metrics
+            metrics_history[f'train_{metric}'].append(value)  # record metrics
+        state = state.replace(metrics=state.metrics.empty())  # reset train_metrics for next training epoch
+
+        # ---------------------------------------
+        # perform callbacks
         # ---------------------------------------
         train = False
-        for cb in callbacks:
-            try:
-                signal = cb.forward(epoch=epoch, state=state, train=train,
-                                    mh=metrics_history,)
+        if epoch % eval_freq == 0:
+            for cb in callbacks:
+                try:
+                    signal = cb.forward(epoch=epoch, state=state, train=train,
+                                        mh=metrics_history,)
 
-            except ArithmeticError:
-                # in case early stop CB has a divergence
-                print("ES Arithmetic Error")
-                callback_break_flag=True
-                callbacks[-1].final_state = state
-                callbacks[-1].final_epoch = epoch
-                callbacks[-1].save(error=True) # make sure early stop is the last CB
-            if signal == 'break':
-                callback_break_flag=True
+                except ArithmeticError:
+                    # in case early stop CB has a divergence
+                    print("ES Arithmetic Error")
+                    callback_break_flag=True
+                    callbacks[-1].final_state = state
+                    callbacks[-1].final_epoch = epoch
+                    callbacks[-1].save(error=True) # make sure early stop is the last CB
+                if signal == 'break':
+                    callback_break_flag=True
 
         # ---------------------------------------
-        # test
+        # evaluate on test data
         # ---------------------------------------
         # model = model.eval()
-        # evaluate every N epochs
+        # evaluate every N epochs/steps
         if epoch % eval_freq == 0 or callback_break_flag:
-            state = state
             for test_batch in test_loader:
                 state = _compute_metrics(state=state, batch=test_batch)
-        for metric, value in state.metrics.compute().items():
-            metrics_history[f'test_{metric}'].append(value)
-        state = state.replace(metrics=state.metrics.empty())  # reset train_metrics for next training epoch
+            for metric, value in state.metrics.compute().items():
+                metrics_history[f'test_{metric}'].append(value)
+            state = state.replace(metrics=state.metrics.empty())  # reset train_metrics for next training epoch
 
         # ---------------------------------------
         # logs

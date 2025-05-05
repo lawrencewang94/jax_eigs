@@ -55,7 +55,7 @@ def make_fixed_configs():
             sam_rho=0.,
             sam_sync=1,
             wd=0.01,
-            gn_clip=1.,
+            gn_clip=None,
         )
     )
     # log configs
@@ -148,7 +148,7 @@ def train_model(var_cfg, datasets=None, resume=False, n_workers=8):
     def __get_arch__():
 
         model = Transformer(cfg)
-        model_name = f"GPT2-small-pretrained"
+        model_name = f"GPT2-mini-pretrained"
         return model, model_name
 
     # -----------------------------------------------------------------------------------------------------------------------------
@@ -342,7 +342,7 @@ def train_model(var_cfg, datasets=None, resume=False, n_workers=8):
         if cfg.force_train:
             raise FileNotFoundError
         experiment_name, lse = utils.find_latest_exp_no_epoch(experiment_name, max_eps=cfg.optim.n_epochs,
-                                                     cbs=cb_name_list, verbose=False)
+                                                     cbs=cb_name_list, verbose=True)
         metrics_history = utils.load_thing("traj/" + experiment_name + "/metrics.pkl")
         print(f"tr_acc: {metrics_history['train_accuracy'][-1]:0%}, te_acc: {metrics_history['test_accuracy'][-1]:0%}")
         metrics_history['lse'] = [lse]

@@ -560,3 +560,41 @@ class MLPNet(nn.Module):
         x = nn.Dense(self.n_out)(x)
 
         return x
+
+
+import optax
+
+def build_lr_schedule(cfg, is_adv=False):
+    """
+    Creates a warmup + decay learning rate scheduler.
+    """
+    lr_mode = cfg.optim.lr_decay_mode
+    peak_lr = cfg.optim.sam_rho * cfg.optim.lr if is_adv else cfg.optim.lr
+    warmup_steps = cfg.optim.warmup_steps
+    total_steps = cfg.optim.n_epochs
+    decay_steps = total_steps - warmup_steps
+
+    warmup = optax.linear_schedule(
+        init_value=0.0,
+        end_value=peak_lr,
+        transition_steps=warmup_steps
+    )
+
+    if lr_mode == 'constant':
+        decay = optax.constant_schedule(peak_lr)
+    elif lr_mode == 'cosine':
+        decay = optax.cosine_decay_schedule(
+            init_value=peak_lr,
+            decay_steps=decay_steps,
+            alpha=0.1  # final LR = 0
+        )
+    elif lr_mode == 'linear':
+        decay = optax.linear_schedule(
+            init_value=peak_lr,
+            end_value=peak_lr*0.1,
+            transition_steps=decay_steps
+        )
+    else:
+        raise NotImplementedError(f"Unknown LR decay mode: {lr_mode}")
+
+    return optax.join_schedules([warmup, decay], boundaries=[warmup_steps])

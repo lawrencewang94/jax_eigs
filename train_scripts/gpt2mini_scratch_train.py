@@ -1,5 +1,7 @@
 # this came from VGG-SAM-variations.py
+import numpy as np
 from ml_collections import ConfigDict
+import time
 
 def make_fixed_configs():
     import jax.numpy as jnp
@@ -20,7 +22,7 @@ def make_fixed_configs():
     # model configs
     model_config = ConfigDict(
         dict(
-            arch_name='gpt2',
+            arch_name='gpt2-mini',
             vocab_size=50257,
             hidden_size=384,  # 768 for small, 512 for mini
             num_layers=6,  # 12 for small, 4 for mini
@@ -41,12 +43,14 @@ def make_fixed_configs():
     optim_config = ConfigDict(
         dict(
             lr=5e-5,
-            bs=8,
-            eval_bs=8,
+            bs=16,
+            eval_bs=16,
+            lr_decay_mode='cosine',
             force_fb=False,
-            grad_accum=1,
-            n_epochs=60,
-            warmup_steps=2,
+            grad_accum=2,
+            n_epochs=50_000,
+            use_steps=True,
+            warmup_steps=500,
             loss_fn=optax.softmax_cross_entropy_with_integer_labels,
             b1=0.9,
             b2=0.99,
@@ -61,21 +65,21 @@ def make_fixed_configs():
     # log configs
     log_config = ConfigDict(
         dict(
-            tqdm_freq=1,
-            eval_freq=1,
+            tqdm_freq=1000,
+            eval_freq=100,
             demo_outputs=False,
         )
     )
     # cb configs
     cb_config = ConfigDict(
         dict(
-            sws=1e8,
+            sws=10_000,
             cb_freq=1,
             compute_hessian=False,
             hess_freq=1e8,
             n_eigs=20,
             n_evecs=10,
-            use_es=True,
+            use_es=False,
             es_stat='train_perplexity',
             es_mode='min',
             es_thresh=0.,
@@ -83,6 +87,9 @@ def make_fixed_configs():
             es_low=30.,
             es_min_eps=0,
             es_low_eps=60,
+            use_bm=True,
+            bm_stat='test_loss',
+            bm_mode='min',
         )
     )
     config = ConfigDict(
@@ -99,7 +106,7 @@ def make_fixed_configs():
     return config
 
 
-def train_model(var_cfg, datasets=None, resume=False, n_workers=8):
+def train_model(var_cfg, resume=False, n_workers=8):
     # TODO write resume logic
     import typing as tp
 
@@ -135,12 +142,15 @@ def train_model(var_cfg, datasets=None, resume=False, n_workers=8):
 
     # -----------------------------------------------------------------------------------------------------------------------------
     # Datasets
-    data_name = "wiki2_" + str(cfg.data.n_train) + "_" + str(cfg.data.n_eval)+"_stride"+str(cfg.data.stride)
+    data_name = "OWT_all"
 
     def __get_datasets__():
-        datasets = lib_data.get_wikitext2_dataset(block_size=cfg.data.seq_len, max_train_samples=cfg.data.n_train,
-                                                  max_eval_samples=cfg.data.n_eval, stride=cfg.data.stride)
-        return datasets
+        lib_data.preprocess_openwebtext()
+        # train_dataset = lib_data.BinDataset("./tokenized_openwebtext/train.bin", block_size=cfg.data.seq_len)
+        # val_dataset = lib_data.BinDataset("./tokenized_openwebtext/val.bin", block_size=cfg.data.seq_len)
+        print("Datasets preprocessed")
+        # return (train_dataset, val_dataset)
+        return None
 
     # -----------------------------------------------------------------------------------------------------------------------------
     # Architecture
@@ -148,70 +158,139 @@ def train_model(var_cfg, datasets=None, resume=False, n_workers=8):
     def __get_arch__():
 
         model = Transformer(cfg)
-        model_name = f"GPT2-small-pretrained"
+        model_name = f"GPT2-mini-scratch"
         return model, model_name
 
     # -----------------------------------------------------------------------------------------------------------------------------
     # Optimizer
-    def __get_optim__():
+    # def __get_optim__(mode='constant'):
+    #     if mode == 'constant':
+    #         second_scheduler = optax.constant_schedule
+    #     elif mode == 'cosine':
+    #         second_scheduler = optax.cosine_decay_schedule
+    #     elif mode == 'linear':
+    #         second_scheduler = optax.linear_schedule
+    #     else:
+    #         raise NotImplementedError
+    #
+    #     base_string = f"1b{cfg.optim.b1}_2b{cfg.optim.b2}_3b{cfg.optim.b3}_lr{cfg.optim.lr}_warmup{cfg.optim.warmup_steps}"
+    #     if cfg.optim.wd > 0:
+    #         base_string += f"_wd{cfg.optim.wd}"
+    #     if cfg.optim.gn_clip is not None:
+    #         base_string += f"_GNclip{cfg.optim.gn_clip}"
+    #     if (cfg.optim.sam is None) or cfg.optim.sam == '':
+    #         warmup_scheduler = optax.linear_schedule(init_value=0.0, end_value=cfg.optim.lr,
+    #                                                  transition_steps=cfg.optim.warmup_steps,
+    #                                                  transition_begin=0, )
+    #         constant_scheduler = optax.constant_schedule(cfg.optim.lr)
+    #         lr_scheduler = optax.join_schedules([warmup_scheduler, constant_scheduler],
+    #                                             boundaries=[cfg.optim.warmup_steps])
+    #         optimizer = modules.get_sgd_optimizer(lr_scheduler, cfg.optim.b1, cfg.optim.b2, cfg.optim.b3, cfg.optim.wd,
+    #                                               cfg.optim.gn_clip, verbose=False)
+    #         optim_name = f"sgdFam_{base_string}"
+    #
+    #     elif cfg.optim.sam[-3:] == 'sam':
+    #         assert cfg.optim.sam_rho is not None
+    #         adv_lr = cfg.optim.sam_rho * cfg.optim.lr
+    #         warmup_scheduler = optax.linear_schedule(init_value=0.0, end_value=cfg.optim.lr,
+    #                                                  transition_steps=cfg.optim.warmup_steps,
+    #                                                  transition_begin=0, )
+    #         constant_scheduler = optax.constant_schedule(cfg.optim.lr)
+    #         lr_scheduler = optax.join_schedules([warmup_scheduler, constant_scheduler],
+    #                                             boundaries=[cfg.optim.warmup_steps])
+    #
+    #         adv_warmup_scheduler = optax.linear_schedule(init_value=0.0, end_value=adv_lr,
+    #                                                      transition_steps=cfg.optim.warmup_steps,
+    #                                                      transition_begin=0, )
+    #         adv_constant_scheduler = optax.constant_schedule(adv_lr)
+    #         adv_lr_scheduler = optax.join_schedules([adv_warmup_scheduler, adv_constant_scheduler],
+    #                                                 boundaries=[cfg.optim.warmup_steps])
+    #
+    #         base_opt = modules.get_sgd_optimizer(lr_scheduler, cfg.optim.b1, cfg.optim.b2, cfg.optim.b3, cfg.optim.wd,
+    #                                              cfg.optim.gn_clip, verbose=False)
+    #         adv_opt = modules.get_sgd_optimizer(adv_lr_scheduler, cfg.optim.b1, cfg.optim.b2, cfg.optim.b3,
+    #                                             cfg.optim.wd, cfg.optim.gn_clip, verbose=False)
+    #
+    #         if cfg.optim.sam == 'sam':
+    #             optimizer = sfo.sam(base_opt, adv_opt, sync_period=cfg.optim.sam_sync, opaque_mode=True)  # sam opt
+    #             optim_name = f"sgdFam-SAM_{base_string}_rho{cfg.optim.sam_rho}_syncT{cfg.optim.sam_sync}"
+    #         elif cfg.optim.sam == 'asam':
+    #             optimizer = sfo.asam(base_opt, adv_opt, sync_period=cfg.optim.sam_sync, opaque_mode=True)  # sam opt
+    #             optim_name = f"sgdFam-aSAM_{base_string}_rho{cfg.optim.sam_rho}_syncT{cfg.optim.sam_sync}"
+    #         if cfg.optim.sam == 'lsam':
+    #             optimizer = sfo.looksam(base_opt, adv_opt, sync_period=cfg.optim.sam_sync, beta=0.9,
+    #                                     opaque_mode=True)  # sam opt
+    #             optim_name = f"sgdFam-lSAM_{base_string}_rho{cfg.optim.sam_rho}_syncT{cfg.optim.sam_sync}"
+    #
+    #     else:
+    #         raise NotImplementedError
+    #
+    #     assert cfg.optim.grad_accum >= 1
+    #     if cfg.optim.grad_accum > 1:
+    #         optim_name += f"_ebs{cfg.optim.bs*cfg.optim.grad_accum}"
+    #     else:
+    #         optim_name += f"_bs{cfg.optim.bs}"
+    #
+    #     return optimizer, optim_name
 
-        base_string = f"1b{cfg.optim.b1}_2b{cfg.optim.b2}_3b{cfg.optim.b3}_lr{cfg.optim.lr}_warmup{cfg.optim.warmup_steps}"
+    def __get_optim__():
+        """
+        Builds the optimizer and learning rate scheduler based on the config.
+        """
+        base_string = (
+            f"1b{cfg.optim.b1}_2b{cfg.optim.b2}_3b{cfg.optim.b3}_lr{cfg.optim.lr}_"
+            f"warmup{cfg.optim.warmup_steps}"
+        )
+
         if cfg.optim.wd > 0:
             base_string += f"_wd{cfg.optim.wd}"
         if cfg.optim.gn_clip is not None:
             base_string += f"_GNclip{cfg.optim.gn_clip}"
-        if (cfg.optim.sam is None) or cfg.optim.sam == '':
-            warmup_scheduler = optax.linear_schedule(init_value=0.0, end_value=cfg.optim.lr,
-                                                     transition_steps=cfg.optim.warmup_steps,
-                                                     transition_begin=0, )
-            constant_scheduler = optax.constant_schedule(cfg.optim.lr)
-            lr_scheduler = optax.join_schedules([warmup_scheduler, constant_scheduler],
-                                                boundaries=[cfg.optim.warmup_steps])
-            optimizer = modules.get_sgd_optimizer(lr_scheduler, cfg.optim.b1, cfg.optim.b2, cfg.optim.b3, cfg.optim.wd,
-                                                  cfg.optim.gn_clip, verbose=False)
+        if cfg.optim.lr_decay_mode != 'constant':
+            base_string += f"_{cfg.optim.lr_decay_mode}Decay"
+
+        lr_scheduler = modules.build_lr_schedule(cfg, is_adv=False)
+
+        if not cfg.optim.sam:
+            optimizer = modules.get_sgd_optimizer(
+                lr_scheduler,
+                cfg.optim.b1, cfg.optim.b2, cfg.optim.b3,
+                cfg.optim.wd, cfg.optim.gn_clip,
+                verbose=False
+            )
             optim_name = f"sgdFam_{base_string}"
-
-        elif cfg.optim.sam[-3:] == 'sam':
+        else:
             assert cfg.optim.sam_rho is not None
-            adv_lr = cfg.optim.sam_rho * cfg.optim.lr
-            warmup_scheduler = optax.linear_schedule(init_value=0.0, end_value=cfg.optim.lr,
-                                                     transition_steps=cfg.optim.warmup_steps,
-                                                     transition_begin=0, )
-            constant_scheduler = optax.constant_schedule(cfg.optim.lr)
-            lr_scheduler = optax.join_schedules([warmup_scheduler, constant_scheduler],
-                                                boundaries=[cfg.optim.warmup_steps])
+            adv_lr_scheduler = modules.build_lr_schedule(cfg, is_adv=True)
 
-            adv_warmup_scheduler = optax.linear_schedule(init_value=0.0, end_value=adv_lr,
-                                                         transition_steps=cfg.optim.warmup_steps,
-                                                         transition_begin=0, )
-            adv_constant_scheduler = optax.constant_schedule(adv_lr)
-            adv_lr_scheduler = optax.join_schedules([adv_warmup_scheduler, adv_constant_scheduler],
-                                                    boundaries=[cfg.optim.warmup_steps])
-
-            base_opt = modules.get_sgd_optimizer(lr_scheduler, cfg.optim.b1, cfg.optim.b2, cfg.optim.b3, cfg.optim.wd,
-                                                 cfg.optim.gn_clip, verbose=False)
-            adv_opt = modules.get_sgd_optimizer(adv_lr_scheduler, cfg.optim.b1, cfg.optim.b2, cfg.optim.b3,
-                                                cfg.optim.wd, cfg.optim.gn_clip, verbose=False)
+            base_opt = modules.get_sgd_optimizer(
+                lr_scheduler,
+                cfg.optim.b1, cfg.optim.b2, cfg.optim.b3,
+                cfg.optim.wd, cfg.optim.gn_clip,
+                verbose=False
+            )
+            adv_opt = modules.get_sgd_optimizer(
+                adv_lr_scheduler,
+                cfg.optim.b1, cfg.optim.b2, cfg.optim.b3,
+                cfg.optim.wd, cfg.optim.gn_clip,
+                verbose=False
+            )
 
             if cfg.optim.sam == 'sam':
-                optimizer = sfo.sam(base_opt, adv_opt, sync_period=cfg.optim.sam_sync, opaque_mode=True)  # sam opt
+                optimizer = sfo.sam(base_opt, adv_opt, sync_period=cfg.optim.sam_sync, opaque_mode=True)
                 optim_name = f"sgdFam-SAM_{base_string}_rho{cfg.optim.sam_rho}_syncT{cfg.optim.sam_sync}"
             elif cfg.optim.sam == 'asam':
-                optimizer = sfo.asam(base_opt, adv_opt, sync_period=cfg.optim.sam_sync, opaque_mode=True)  # sam opt
+                optimizer = sfo.asam(base_opt, adv_opt, sync_period=cfg.optim.sam_sync, opaque_mode=True)
                 optim_name = f"sgdFam-aSAM_{base_string}_rho{cfg.optim.sam_rho}_syncT{cfg.optim.sam_sync}"
-            if cfg.optim.sam == 'lsam':
-                optimizer = sfo.looksam(base_opt, adv_opt, sync_period=cfg.optim.sam_sync, beta=0.9,
-                                        opaque_mode=True)  # sam opt
+            elif cfg.optim.sam == 'lsam':
+                optimizer = sfo.looksam(base_opt, adv_opt, sync_period=cfg.optim.sam_sync, beta=0.9, opaque_mode=True)
                 optim_name = f"sgdFam-lSAM_{base_string}_rho{cfg.optim.sam_rho}_syncT{cfg.optim.sam_sync}"
+            else:
+                raise NotImplementedError(f"SAM variant {cfg.optim.sam} not supported.")
 
-        else:
-            raise NotImplementedError
-
-        assert cfg.optim.grad_accum >= 1
-        if cfg.optim.grad_accum > 1:
-            optim_name += f"_ebs{cfg.optim.bs*cfg.optim.grad_accum}"
-        else:
-            optim_name += f"_bs{cfg.optim.bs}"
+        # Add batch size info to name
+        ebs = cfg.optim.bs * cfg.optim.grad_accum
+        optim_name += f"_ebs{ebs}" if cfg.optim.grad_accum > 1 else f"_bs{cfg.optim.bs}"
 
         return optimizer, optim_name
 
@@ -237,6 +316,9 @@ def train_model(var_cfg, datasets=None, resume=False, n_workers=8):
                                          final_cbs=[], verbose=False, low_eps=cfg.cb.es_low_eps,
                                          low_thresh=cfg.cb.es_low, mode=cfg.cb.es_mode, statistic=cfg.cb.es_stat)
             cbs.append(esCB)
+        if cfg.cb.use_bm:
+            bmCB = callbacks.bestModelCB(statistic=cfg.cb.bm_stat, mode=cfg.cb.bm_mode, save_freq=cfg.log.eval_freq)
+            cbs.append(bmCB)
         return cbs
 
     # -----------------------------------------------------------------------------------------------------------------------------
@@ -309,12 +391,43 @@ def train_model(var_cfg, datasets=None, resume=False, n_workers=8):
 
     datasets = __get_datasets__()
 
-    train_loader = lib_data.NumpyLoader(datasets[0], batch_size=cfg.optim.bs, shuffle=True, num_workers=n_workers)
-    for sample_batch in train_loader:
-        break
+    train_loader = lib_data.FastMemmapDataLoader(
+        path="./tokenized_openwebtext/train.bin",
+        block_size=cfg.data.seq_len,
+        batch_size=cfg.optim.bs,
+        buffer_size=100_000_000,
+        shuffle=True,
+        seed=cfg.optim.seed  # Fixes the order
+    )
 
-    test_loader = lib_data.NumpyLoader(datasets[1], batch_size=cfg.optim.eval_bs, num_workers=n_workers)
+    # Load full val dataset into memory (e.g., token sequences)
+    val_data = np.memmap("./tokenized_openwebtext/val.bin", dtype=np.uint16, mode="r")
+    val_data = np.array(val_data)  # load fully into memory
+    val_x, val_y = utils.chunk_into_sequences(val_data, cfg.data.seq_len)
+    val_data = lib_data.Dataset(val_x, np.array(val_y).astype(jnp.int32))
+
+    test_loader = lib_data.NumpyLoader(val_data, batch_size=cfg.optim.eval_bs, num_workers=n_workers)
+
+    # test_loader = lib_data.MemmapDataLoader(
+    #     path="./tokenized_openwebtext/val.bin",
+    #     block_size=cfg.data.seq_len,
+    #     batch_size=cfg.optim.eval_bs,
+    #     shuffle=False,
+    #     seed=cfg.optim.seed  # Fixes the order
+    # )
+
+    # print("testing test loader time")
+    # start_time = time.time()
+    # print("it took this long to warm up test loader", time.time()-start_time)
+    # print(len(test_loader))
+
+    for sample_batch in test_loader:
+        break
+    print("sample test batch", sample_batch[0].shape, sample_batch[0].dtype, sample_batch[1].shape, sample_batch[1].dtype)
+
     dataloaders = [train_loader, test_loader]
+    sample_batch = next(iter(train_loader))
+    print("sample train batch", sample_batch[0].shape, sample_batch[1].shape)
 
     model, model_name = __get_arch__()
     model_name += "_seed" + str(cfg.optim.seed)
@@ -325,9 +438,7 @@ def train_model(var_cfg, datasets=None, resume=False, n_workers=8):
     state = create_train_state(model, optim, sample_batch[0], init_rng, option=option)
     del init_rng  # Must not be used anymore.
 
-    if cfg.log.demo_outputs: token_predictions(state, sample_batch)
-    # load GPT2 weights
-    state = load_params_gpt2mini(cfg, state)
+    print(utils.count_params(state.params))
     if cfg.log.demo_outputs: token_predictions(state, sample_batch)
 
     cbs = __get_cbs__(state)
@@ -355,7 +466,7 @@ def train_model(var_cfg, datasets=None, resume=False, n_workers=8):
         metrics_history, state = training.train_model(state, model, cfg.optim.loss_fn, metrics_history, cfg.optim.n_epochs, dataloaders, \
                                                experiment_name, cbs, option=option, force_fb=cfg.optim.force_fb,
                                                tqdm_over_epochs=cfg.log.tqdm_freq, eval_freq=cfg.log.eval_freq, gradient_accumulation=cfg.optim.grad_accum,
-                                                      return_state=True)
+                                                      return_state=True, steps_not_epochs=cfg.optim.use_steps)
 
     if cfg.log.demo_outputs: token_predictions(state, sample_batch)
 

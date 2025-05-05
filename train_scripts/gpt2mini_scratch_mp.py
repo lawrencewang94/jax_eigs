@@ -26,11 +26,14 @@ def make_configs():
     # b2_list = [0.99, 0.999]
     # s = [seed_list, stride_k_list, b2_list]
 
-    # s = [seed_list]
-
-    stride_k_list = [1, 2]
+    s = [seed_list]
     b3_list = [0., -1.]
-    s = [seed_list, stride_k_list, b3_list]
+    gn_clip_list = [None, 1.]
+    s = [seed_list, b3_list, gn_clip_list]
+
+    # stride_k_list = [1, 2]
+    # b3_list = [0., -1.]
+    # s = [seed_list, stride_k_list, b3_list]
 
     hyp_list = list(itertools.product(*s))
 
@@ -44,19 +47,8 @@ def make_configs():
 
         #--------------------------------
         optim_config.seed = hyp[0]
-
-        data_config.stride = int(512/hyp[1])
-        data_config.n_train = 4670*hyp[1]
-        optim_config.n_epochs = int(30 / hyp[1])
-        optim_config.b3 = hyp[2]
-
-        # data_config.stride = int(1024/hyp[1])
-        # data_config.n_train = 2335*hyp[1]
-        # optim_config.b2 = hyp[2]
-        # optim_config.n_epochs = 60/hyp[1]
-
-        # optim_config.wd = hyp[1]
-        # optim_config.gn_clip = hyp[2]
+        optim_config.b3 = hyp[1]
+        optim_config.gn_clip = hyp[2]
 
         cfg = ConfigDict(
             dict(
@@ -80,7 +72,6 @@ def nostdout():
     sys.stdout = save_stdout
 
 def do_job(tasks_to_accomplish, tasks_that_are_done, job):
-    datasets = None
     while True:
         try:
             '''
@@ -96,19 +87,12 @@ def do_job(tasks_to_accomplish, tasks_that_are_done, job):
             os.environ['XLA_PYTHON_CLIENT_MEM_FRACTION'] = '0.9'
             # os.environ['XLA_PYTHON_CLIENT_PREALLOCATE'] = 'false'
 
-            out_str, mh, datasets = job(task, datasets, resume=False)
-            # print(out_str)
-            # print(mh)
+            out_str, mh = job(task, resume=False)
             print(mh['experiment_name'])
             print("Train Perp")
             print(np.array(list(mh['train_perplexity'])))
             print("Test Perp")
             print(np.array(list(mh['test_perplexity'])))
-            # print("Train Acc")
-            # print(np.array(list(mh['train_accuracy'])))
-            # print("Test Acc")
-            # print(np.array(list(mh['test_accuracy'])))
-            #
             time.sleep(0.2)
 
         except queue.Empty:
@@ -132,7 +116,6 @@ def do_job(tasks_to_accomplish, tasks_that_are_done, job):
 
 
 def main():
-
     # import utils
     # # mh = utils.load_thing("traj/250502-1158_wiki2_2335_276_GPT2-small-pretrained_seed0_sgdFam_1b0.9_2b0.999_3b0.0_lr0.005_warmup2_wd0.005_bs8/metrics.pkl")
     # mh = utils.load_thing("traj/250502-1403_wiki2_2335_276_stride1024_GPT2-small-pretrained_seed0_sgdFam_1b0.9_2b0.999_3b0.0_lr5e-05_warmup2_wd0.005_bs8/metrics.pkl")
@@ -142,7 +125,7 @@ def main():
     #
     # return
 
-    from train_scripts.gpt2mini_ft_wiki2_train import train_model
+    from train_scripts.gpt2mini_scratch_train  import train_model
 
     ### Flexible HPs
     configs = make_configs()
@@ -155,6 +138,7 @@ def main():
     process_ids = list(range(number_of_processes))
     # process_ids = [0, 1]
     # process_ids = [2, 3]
+    # process_ids = [2]
 
     tasks_to_accomplish = Queue()
     tasks_that_are_done = Queue()

@@ -4,7 +4,8 @@ data/
 *.txt
 txt/
 adv/
-cached_wikitext2/
+cached*
+tokenized*
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

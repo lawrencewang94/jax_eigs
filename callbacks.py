@@ -510,3 +510,46 @@ class accLaCB(Callback):
     def save(self):
         pass
 
+
+class bestModelCB(Callback):
+    # sets LR
+    def __init__(self, statistic='test_loss', mode='max',
+                 save_final_weights=True, save_freq=1, save_pref="traj/", verbose=False, ):
+        super().__init__(save_freq=save_freq, save_pref=save_pref, verbose=verbose)
+        self.sfw = save_final_weights
+        self.statistic = statistic
+
+        self.name = "bmCB"
+        self.name += "_"+str(self.statistic)
+
+        if mode == 'max':
+            self.best_stat = -np.inf
+            self.comp_fn = lambda x, t: x > t
+        elif mode == 'min':
+            self.comp_fn = lambda x, t: x < t
+            self.best_stat = np.inf
+        else:
+            raise NotImplementedError
+
+        self.best_epoch = None
+        self.best_state = None
+
+    def forward(self, **kwargs):
+        epoch = kwargs['epoch']
+        try:
+            mh = kwargs['mh']
+
+            if self.statistic in mh.keys():
+                key_stat = mh[self.statistic][-1]
+                if self.comp_fn(key_stat, self.best_stat):
+                    self.best_stat = key_stat
+                    self.best_epoch = epoch
+                    self.best_state = kwargs['state']
+        except KeyError:
+            return None
+
+
+    def save(self, error=False):
+        utils.save_thing(np.zeros(1), self.save_path + f"/best_model{self.best_epoch}.pkl")
+        if self.sfw:
+            utils.save_weights(self.best_state, self.save_path + "/best_w" + str(self.best_epoch) + ".pkl")
