@@ -28,9 +28,9 @@ def make_configs():
 
     # s = [seed_list]
 
-    # stride_k_list = [1, 2]
-    b3_list = [0., -1., -0.1, -0.01]
-    s = [seed_list, b3_list]
+    stride_k_list = [1, 2]
+    b3_list = [0., -1.]
+    s = [seed_list, stride_k_list, b3_list]
 
     hyp_list = list(itertools.product(*s))
 
@@ -45,10 +45,10 @@ def make_configs():
         #--------------------------------
         optim_config.seed = hyp[0]
 
-        # data_config.stride = int(512/hyp[1])
-        # data_config.n_train = 4670*hyp[1]
-        # optim_config.n_epochs = int(30 / hyp[1])
-        optim_config.b3 = hyp[1]
+        data_config.stride = int(512/hyp[1])
+        data_config.n_train = 4670*hyp[1]
+        optim_config.n_epochs = int(30 / hyp[1])
+        optim_config.b3 = hyp[2]
 
         # data_config.stride = int(1024/hyp[1])
         # data_config.n_train = 2335*hyp[1]

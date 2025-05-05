@@ -11,8 +11,8 @@ def make_fixed_configs():
             n_train=4670,  # 2335, 4670, 9340, 2391884
             n_eval=276,  # 283287 total
             n_hess=5120,
-            seq_len=512,
-            stride=512,  # if half of seq len, then x2 data; 1024 is total sq len
+            seq_len=1024,
+            stride=1024,  # if half of seq len, then x2 data; 1024 is total sq len
             use_mse=False,
         )
     )
@@ -22,13 +22,13 @@ def make_fixed_configs():
         dict(
             arch_name='gpt2',
             vocab_size=50257,
-            hidden_size=512,  # 768 for small, 512 for mini
-            num_layers=4,  # 12 for small, 4 for mini
-            num_heads=8,  # 12 for small, 8 for mini
+            hidden_size=384,  # 768 for small, 512 for mini
+            num_layers=6,  # 12 for small, 4 for mini
+            num_heads=6,  # 12 for small, 8 for mini
             head_dim=64,
             mlp_expansion=4,
             dropout_rate=0.1,
-            max_seq_len=512,  # 1024 for small, 512 for mini
+            max_seq_len=1024,  # 1024 for small, 512 for mini
             num_outputs=50257,
             dtype=jax.dtypes.bfloat16,  # jnp.float32, jax.dtypes.bfloat16
             causal_mask=True,
@@ -41,11 +41,11 @@ def make_fixed_configs():
     optim_config = ConfigDict(
         dict(
             lr=5e-5,
-            bs=64,
-            eval_bs=64,
+            bs=8,
+            eval_bs=8,
             force_fb=False,
             grad_accum=1,
-            n_epochs=30,
+            n_epochs=60,
             warmup_steps=2,
             loss_fn=optax.softmax_cross_entropy_with_integer_labels,
             b1=0.9,

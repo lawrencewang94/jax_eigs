@@ -72,7 +72,7 @@ def load_params_gpt2small(config, state):
 
 
 
-def load_params_gpt2mini(state, config):
+def load_params_gpt2mini(config, state):
     pt_model = AutoModelForCausalLM.from_pretrained("erwanf/gpt2-mini")
     pt_state = pt_model.transformer.state_dict()
 
@@ -82,7 +82,7 @@ def load_params_gpt2mini(state, config):
     params['token_embed']['embedding'] = pt_state['wte.weight'].cpu().numpy()
     params['pos_emb'] = pt_state['wpe.weight'].cpu().numpy()
 
-    for i in range(config.num_layers):
+    for i in range(config.model.num_layers):
         block = params[f'block_{i}']
         attn_key = "CheckpointAttentionBlock_0" if "CheckpointAttentionBlock_0" in block else "AttentionBlock_0"
         mlp_key = "CheckpointMLPBlock_0" if "CheckpointMLPBlock_0" in block else "MLPBlock_0"
@@ -97,11 +97,11 @@ def load_params_gpt2mini(state, config):
         qkv = pt_state[f'h.{i}.attn.c_attn.weight'].cpu().numpy()  # (hidden, 3*hidden)
         qkv_bias = pt_state[f'h.{i}.attn.c_attn.bias'].cpu().numpy()  # (3*hidden,)
 
-        qkv = qkv.reshape(config.hidden_size, 3, config.num_heads, config.head_dim)
-        qkv = np.transpose(qkv, (0, 2, 1, 3)).reshape(config.hidden_size, config.num_heads, 3 * config.head_dim)
+        qkv = qkv.reshape(config.model.hidden_size, 3, config.model.num_heads, config.model.head_dim)
+        qkv = np.transpose(qkv, (0, 2, 1, 3)).reshape(config.model.hidden_size, config.model.num_heads, 3 * config.model.head_dim)
 
-        qkv_bias = qkv_bias.reshape(3, config.num_heads, config.head_dim)
-        qkv_bias = np.transpose(qkv_bias, (1, 0, 2)).reshape(config.num_heads, 3 * config.head_dim)
+        qkv_bias = qkv_bias.reshape(3, config.model.num_heads, config.model.head_dim)
+        qkv_bias = np.transpose(qkv_bias, (1, 0, 2)).reshape(config.model.num_heads, 3 * config.model.head_dim)
 
         block[attn_key]['DenseGeneral_0']['kernel'] = qkv
         block[attn_key]['DenseGeneral_0']['bias'] = qkv_bias
