@@ -27,8 +27,9 @@ def make_configs():
     # s = [seed_list, stride_k_list, b2_list]
 
     s = [seed_list]
-    b3_list = [0., -1.]
-    gn_clip_list = [None, 1.]
+    # b3_list = [-1., -0.01, -0.0001, 0.]
+    b3_list = [-0.000000001]
+    gn_clip_list = [None,]
     s = [seed_list, b3_list, gn_clip_list]
 
     # stride_k_list = [1, 2]
@@ -87,7 +88,7 @@ def do_job(tasks_to_accomplish, tasks_that_are_done, job):
             os.environ['XLA_PYTHON_CLIENT_MEM_FRACTION'] = '0.9'
             # os.environ['XLA_PYTHON_CLIENT_PREALLOCATE'] = 'false'
 
-            out_str, mh = job(task, resume=False)
+            out_str, mh = job(task, resume=True, gpu_id=process_id-1)
             print(mh['experiment_name'])
             print("Train Perp")
             print(np.array(list(mh['train_perplexity'])))
@@ -116,13 +117,35 @@ def do_job(tasks_to_accomplish, tasks_that_are_done, job):
 
 
 def main():
-    # import utils
-    # # mh = utils.load_thing("traj/250502-1158_wiki2_2335_276_GPT2-small-pretrained_seed0_sgdFam_1b0.9_2b0.999_3b0.0_lr0.005_warmup2_wd0.005_bs8/metrics.pkl")
-    # mh = utils.load_thing("traj/250502-1403_wiki2_2335_276_stride1024_GPT2-small-pretrained_seed0_sgdFam_1b0.9_2b0.999_3b0.0_lr5e-05_warmup2_wd0.005_bs8/metrics.pkl")
+    import utils
+    # mh = utils.load_thing("traj/250505-1951_OWT_all_GPT2-mini-scratch_seed0_sgdFam_1b0.9_2b0.99_3b0.0_lr5e-05_warmup500_wd0.01_GNclip1.0_cosineDecay_ebs32/metrics.pkl")
+    # mh = utils.load_thing("traj/250505-1949_OWT_all_GPT2-mini-scratch_seed0_sgdFam_1b0.9_2b0.99_3b0.0_lr5e-05_warmup500_wd0.01_cosineDecay_ebs32/metrics.pkl")
+    # tmp_path = "250506-1505_OWT_all_GPT2-mini-scratch_seed0_sgdFam_1b0.9_2b0.99_3b0.0_lr0.0001_warmup500_wd0.01_cosineDecay_ebs32"
     #
+    # import jax
+    # import jax.numpy as jnp
+    # import optax
+    #
+    # def get_max_per_layer(pytree):
+    #     # Flatten the pytree while keeping structure info
+    #     leaves, treedef = jax.tree_util.tree_flatten(pytree)
+    #     return [jnp.max(jnp.abs(leaf)) for leaf in leaves]
+    #
+    # def print_max_mu_nu(opt_state: optax.ScaleByAdamState):
+    #     max_mu_per_layer = get_max_per_layer(opt_state.mu)
+    #     max_nu_per_layer = get_max_per_layer(opt_state.nu)
+    #
+    #     for i, (mu_max, nu_max) in enumerate(zip(max_mu_per_layer, max_nu_per_layer)):
+    #         print(f"Layer {i}: max |mu| = {mu_max:.6f}, max |nu| = {nu_max:.6f}")
+    #
+    # opt = utils.load_thing("opt20000.pkl")
+    # print_max_mu_nu(opt[0][0]   )
+    # return
+
+
     # print(np.array(list(mh['train_perplexity'])))
     # print(np.array(list(mh['test_perplexity'])))
-    #
+    # #
     # return
 
     from train_scripts.gpt2mini_scratch_train  import train_model
@@ -134,11 +157,11 @@ def main():
     print(number_of_tasks, "tasks")
     print(configs)
 
-    number_of_processes = 4
-    process_ids = list(range(number_of_processes))
+    # number_of_processes = 4
+    # process_ids = list(range(number_of_processes))
     # process_ids = [0, 1]
     # process_ids = [2, 3]
-    # process_ids = [2]
+    process_ids = [3]
 
     tasks_to_accomplish = Queue()
     tasks_that_are_done = Queue()

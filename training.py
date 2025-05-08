@@ -177,7 +177,7 @@ def _get_train_jits(loss_fn, option=""):
 
 
 def train_model(state, model, loss_fn, metrics_history, n_epochs, loaders, name, callbacks=[], option="",
-                tqdm_over_epochs=True, tqdm_over_batch=False, force_fb=False, verbose=False,
+                tqdm_over_epochs=True, tqdm_over_batch=False, force_fb=False, verbose=False, cfg=None, dynamic_bar=True,
                 tqdm_maxinterval=1800, eval_freq=1, gradient_accumulation=1, return_state=False, steps_not_epochs=False):
     '''
     # check stuff, define stuff, make folders,
@@ -203,9 +203,16 @@ def train_model(state, model, loss_fn, metrics_history, n_epochs, loaders, name,
     if isinstance(tqdm_over_epochs, bool):
         tqdm_over_epochs = int(tqdm_over_epochs)
 
-    epoch_bar = tqdm(range(1, n_epochs+1), desc="epochs", total=n_epochs, maxinterval=tqdm_maxinterval,
-                     miniters=tqdm_over_epochs) if tqdm_over_epochs>0 \
-                else range(1, n_epochs+1)
+    if tqdm_over_epochs > 0:
+        if dynamic_bar:
+            epoch_bar = tqdm(range(1, n_epochs + 1), desc="epochs", total=n_epochs, maxinterval=tqdm_maxinterval,
+                         miniters=tqdm_over_epochs)
+        else:
+            epoch_bar = tqdm(range(1, n_epochs + 1), desc="epochs", total=n_epochs, maxinterval=tqdm_maxinterval,
+                             miniters=tqdm_over_epochs, disable=True)
+    else:
+        epoch_bar = range(1, n_epochs+1)
+
 
     train_bar = tqdm(train_loader, desc="training", total=len(train_loader)) if tqdm_over_batch else train_loader
     test_bar = tqdm(test_loader, desc="validation", total=len(test_loader)) if tqdm_over_batch else test_loader
@@ -260,16 +267,42 @@ def train_model(state, model, loss_fn, metrics_history, n_epochs, loaders, name,
         metrics_history[f'test_{metric}'].append(value)  # record metrics
     state = state.replace(metrics=state.metrics.empty())  # reset train_metrics for next training epoch
 
+    if 'grad_norm' not in metrics_history.keys():
+        metrics_history['grad_norm'] = []
     # model training
     start_time = time.time()
     epoch = 0
+
+
+    def set_bar_text(bar_text):
+        if tqdm_over_epochs > 0:
+            if dynamic_bar:
+                epoch_bar.set_description(bar_text)
+            else:
+                total = n_epochs
+                current_time = time.time() - start_time
+                per_unit_time = current_time / (epoch + 1)
+                remaining = n_epochs - epoch
+                eta = remaining * per_unit_time
+                out_string = f"GPU {cfg.gpu_id} | Epoch {epoch + 1}/{total} | ETA: {eta:.1f}s" + bar_text
+                print(out_string)
+        else:
+            total = n_epochs
+            current_time = time.time()-start_time
+            per_unit_time = current_time / (epoch + 1)
+            remaining = n_epochs - epoch
+            eta = remaining * per_unit_time
+            out_string = f"GPU {cfg.gpu_id} | Epoch {epoch + 1}/{total} | ETA: {eta:.1f}s" + bar_text
+            print(out_string)
+
     print("Beginning training")
 
     for epoch in epoch_bar:
         # initialize bar text
         if epoch == 0:
             bar_text = utils.compute_bar_text(metrics_history, epoch)
-            epoch_bar.set_description(bar_text)
+            # epoch_bar.set_description(bar_text)
+            set_bar_text(bar_text)
 
         # ---------------------------------------
         # train by timesteps
@@ -304,10 +337,11 @@ def train_model(state, model, loss_fn, metrics_history, n_epochs, loaders, name,
                     except StopIteration:
                         # Reload buffer if using a streaming loader
                         train_iter = iter(train_loader)
-                        if accum_counter > 0:
-                            grads = _tree_div(grads, accum_counter)
-                            state = state.apply_gradients(grads=grads)
-                        break
+
+                if accum_counter == n_grad_accum:
+                    grads = _tree_div(grads, accum_counter)
+                    state = state.apply_gradients(grads=grads)
+                    metrics_history['grad_norm'].append(optax.global_norm(grads))
 
         # ---------------------------------------
         # train by epochs
@@ -383,7 +417,8 @@ def train_model(state, model, loss_fn, metrics_history, n_epochs, loaders, name,
         # ---------------------------------------
         bar_text = utils.compute_bar_text(metrics_history, epoch)
         if (tqdm_over_epochs > 0) and ((epoch % tqdm_over_epochs) == 0) or callback_break_flag:
-            epoch_bar.set_description(bar_text)
+            # epoch_bar.set_description(bar_text)
+            set_bar_text(bar_text)
 
         if callback_break_flag:
             print("terminating training", bar_text)

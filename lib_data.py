@@ -1176,12 +1176,13 @@ def preprocess_openwebtext(
         filename = os.path.join(output_dir, f"{split}.bin")
         len_path = filename.replace(".bin", ".len")
         if os.path.exists(filename) and os.path.exists(len_path):
-            print(f"{filename} already exists. Skipping...")
+            pass
+            # print(f"{filename} already exists. Skipping...")
         else:
             compute_flag = True
 
     if not compute_flag:
-        print("Dataset Cache Exists!")
+        print("Dataset cache exists!")
         return
 
     print("Loading OpenWebText...")

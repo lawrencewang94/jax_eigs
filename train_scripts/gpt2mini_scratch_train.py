@@ -42,7 +42,7 @@ def make_fixed_configs():
     # optimizer configs
     optim_config = ConfigDict(
         dict(
-            lr=5e-5,
+            lr=1e-4,
             bs=16,
             eval_bs=16,
             lr_decay_mode='cosine',
@@ -68,6 +68,7 @@ def make_fixed_configs():
             tqdm_freq=1000,
             eval_freq=100,
             demo_outputs=False,
+            dynamic_tqdm=False,
         )
     )
     # cb configs
@@ -106,7 +107,7 @@ def make_fixed_configs():
     return config
 
 
-def train_model(var_cfg, resume=False, n_workers=8):
+def train_model(var_cfg, resume=False, n_workers=8, gpu_id=None):
     # TODO write resume logic
     import typing as tp
 
@@ -131,6 +132,8 @@ def train_model(var_cfg, resume=False, n_workers=8):
     fixed_cfg = make_fixed_configs()
     # variable CFGs
     cfg = utils.deep_merge(fixed_cfg, var_cfg)
+    if gpu_id is not None:
+        cfg.gpu_id = gpu_id
 
     # cfg = deep_merge(fixed_cfg, var_cfg)
 
@@ -233,7 +236,7 @@ def train_model(var_cfg, resume=False, n_workers=8):
     #
     #     return optimizer, optim_name
 
-    def __get_optim__():
+    def __get_optim__(verbose=False):
         """
         Builds the optimizer and learning rate scheduler based on the config.
         """
@@ -256,7 +259,7 @@ def train_model(var_cfg, resume=False, n_workers=8):
                 lr_scheduler,
                 cfg.optim.b1, cfg.optim.b2, cfg.optim.b3,
                 cfg.optim.wd, cfg.optim.gn_clip,
-                verbose=False
+                verbose=verbose
             )
             optim_name = f"sgdFam_{base_string}"
         else:
@@ -267,13 +270,13 @@ def train_model(var_cfg, resume=False, n_workers=8):
                 lr_scheduler,
                 cfg.optim.b1, cfg.optim.b2, cfg.optim.b3,
                 cfg.optim.wd, cfg.optim.gn_clip,
-                verbose=False
+                verbose=verbose
             )
             adv_opt = modules.get_sgd_optimizer(
                 adv_lr_scheduler,
                 cfg.optim.b1, cfg.optim.b2, cfg.optim.b3,
                 cfg.optim.wd, cfg.optim.gn_clip,
-                verbose=False
+                verbose=verbose
             )
 
             if cfg.optim.sam == 'sam':
@@ -408,19 +411,6 @@ def train_model(var_cfg, resume=False, n_workers=8):
 
     test_loader = lib_data.NumpyLoader(val_data, batch_size=cfg.optim.eval_bs, num_workers=n_workers)
 
-    # test_loader = lib_data.MemmapDataLoader(
-    #     path="./tokenized_openwebtext/val.bin",
-    #     block_size=cfg.data.seq_len,
-    #     batch_size=cfg.optim.eval_bs,
-    #     shuffle=False,
-    #     seed=cfg.optim.seed  # Fixes the order
-    # )
-
-    # print("testing test loader time")
-    # start_time = time.time()
-    # print("it took this long to warm up test loader", time.time()-start_time)
-    # print(len(test_loader))
-
     for sample_batch in test_loader:
         break
     print("sample test batch", sample_batch[0].shape, sample_batch[0].dtype, sample_batch[1].shape, sample_batch[1].dtype)
@@ -432,11 +422,14 @@ def train_model(var_cfg, resume=False, n_workers=8):
     model, model_name = __get_arch__()
     model_name += "_seed" + str(cfg.optim.seed)
 
-    optim, optim_name = __get_optim__()
-
+    optim, optim_name = __get_optim__(verbose=True)
     init_rng = jax.random.PRNGKey(cfg.optim.seed)
     state = create_train_state(model, optim, sample_batch[0], init_rng, option=option)
     del init_rng  # Must not be used anymore.
+
+    # sample_out = state.apply_fn({'params': state.params,}, sample_batch[0][0][np.newaxis, :], train=False)
+    sample_out = state.apply_fn({'params': state.params,}, sample_batch[0], train=False)
+    print("sample out", sample_out.shape)
 
     print(utils.count_params(state.params))
     if cfg.log.demo_outputs: token_predictions(state, sample_batch)
@@ -452,8 +445,13 @@ def train_model(var_cfg, resume=False, n_workers=8):
     try:
         if cfg.force_train:
             raise FileNotFoundError
-        experiment_name, lse = utils.find_latest_exp_no_epoch(experiment_name, max_eps=cfg.optim.n_epochs,
-                                                     cbs=cb_name_list, verbose=False)
+
+        experiment_name, lse = utils.find_latest_exp(experiment_name, cfg.optim.n_epochs,
+                                                              cbs=cb_name_list, verbose=False)
+
+        # experiment_name, lse = utils.find_latest_exp_no_epoch(experiment_name, max_eps=cfg.optim.n_epochs,
+        #                                              cbs=cb_name_list, verbose=True)
+
         metrics_history = utils.load_thing("traj/" + experiment_name + "/metrics.pkl")
         print(f"tr_acc: {metrics_history['train_accuracy'][-1]:0%}, te_acc: {metrics_history['test_accuracy'][-1]:0%}")
         metrics_history['lse'] = [lse]
@@ -464,9 +462,9 @@ def train_model(var_cfg, resume=False, n_workers=8):
 
     except FileNotFoundError:
         metrics_history, state = training.train_model(state, model, cfg.optim.loss_fn, metrics_history, cfg.optim.n_epochs, dataloaders, \
-                                               experiment_name, cbs, option=option, force_fb=cfg.optim.force_fb,
+                                               experiment_name, cbs, option=option, force_fb=cfg.optim.force_fb, cfg=cfg,
                                                tqdm_over_epochs=cfg.log.tqdm_freq, eval_freq=cfg.log.eval_freq, gradient_accumulation=cfg.optim.grad_accum,
-                                                      return_state=True, steps_not_epochs=cfg.optim.use_steps)
+                                                      return_state=True, steps_not_epochs=cfg.optim.use_steps, dynamic_bar=cfg.log.dynamic_tqdm)
 
     if cfg.log.demo_outputs: token_predictions(state, sample_batch)
 
@@ -478,4 +476,4 @@ def train_model(var_cfg, resume=False, n_workers=8):
 
     metrics_history['experiment_name'] = experiment_name
 
-    return out_str, metrics_history, datasets
+    return out_str, metrics_history,

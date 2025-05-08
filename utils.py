@@ -72,13 +72,14 @@ def save_weights(state, path, verbose=False):
     last_slash = path.rfind("/")
     try:
         if state.batch_stats:
-            bs_path = path[last_slash + 1:].replace("w", "bs")
+            bs_path = path[:last_slash + 1] + path[last_slash + 1:].replace("w", "bs")
             save_thing(state.batch_stats, bs_path)
     except AttributeError:
         pass
+
     try:
         if state.opt_state:
-            opt_path = path[last_slash + 1:].replace("w", "opt")
+            opt_path = path[:last_slash + 1] + path[last_slash + 1:].replace("w", "opt")
             save_thing(state.opt_state, opt_path)
     except AttributeError:
         pass
@@ -898,5 +899,4 @@ def chunk_into_sequences(data, block_size):
     inputs = data[:n_chunks * block_size]
     targets = data[1:n_chunks * block_size+1]
     return (inputs.reshape(n_chunks, block_size), targets.reshape(n_chunks, block_size))
-
 

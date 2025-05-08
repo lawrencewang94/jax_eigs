@@ -6,6 +6,7 @@ txt/
 adv/
 cached*
 tokenized*
+tmp_pkl/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
