@@ -17,6 +17,7 @@ from ml_collections import ConfigDict
 def make_configs():
     #----------------------------
     seed_list = [x for x in range(1)]
+    s = [seed_list]
 
     # wd_list = [0.01, 0.]
     # gn_clip_list = [None, 1.]
@@ -26,11 +27,12 @@ def make_configs():
     # b2_list = [0.99, 0.999]
     # s = [seed_list, stride_k_list, b2_list]
 
-    s = [seed_list]
+
     # b3_list = [-1., -0.01, -0.0001, 0.]
-    b3_list = [-0.000000001]
-    gn_clip_list = [None,]
-    s = [seed_list, b3_list, gn_clip_list]
+    # b3_list = [-0.000000001]
+    # b3_list = [0.]
+    # gn_clip_list = [None,]
+    # s = [seed_list, b3_list, gn_clip_list]
 
     # stride_k_list = [1, 2]
     # b3_list = [0., -1.]
@@ -48,8 +50,6 @@ def make_configs():
 
         #--------------------------------
         optim_config.seed = hyp[0]
-        optim_config.b3 = hyp[1]
-        optim_config.gn_clip = hyp[2]
 
         cfg = ConfigDict(
             dict(
@@ -85,7 +85,7 @@ def do_job(tasks_to_accomplish, tasks_that_are_done, job):
             # print(int(current_process().name[-1:]))
             process_id = int(current_process().name[-1:])
             os.environ['CUDA_VISIBLE_DEVICES'] = str(process_id-1)
-            os.environ['XLA_PYTHON_CLIENT_MEM_FRACTION'] = '0.9'
+            os.environ['XLA_PYTHON_CLIENT_MEM_FRACTION'] = '0.95'
             # os.environ['XLA_PYTHON_CLIENT_PREALLOCATE'] = 'false'
 
             out_str, mh = job(task, resume=True, gpu_id=process_id-1)
@@ -161,7 +161,7 @@ def main():
     # process_ids = list(range(number_of_processes))
     # process_ids = [0, 1]
     # process_ids = [2, 3]
-    process_ids = [3]
+    process_ids = [0]
 
     tasks_to_accomplish = Queue()
     tasks_that_are_done = Queue()

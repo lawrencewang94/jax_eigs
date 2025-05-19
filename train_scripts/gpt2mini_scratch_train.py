@@ -42,18 +42,18 @@ def make_fixed_configs():
     # optimizer configs
     optim_config = ConfigDict(
         dict(
-            lr=1e-4,
+            lr=5e-4,
             bs=16,
             eval_bs=16,
             lr_decay_mode='cosine',
             force_fb=False,
-            grad_accum=2,
-            n_epochs=50_000,
+            grad_accum=32,
+            n_epochs=100_000,
             use_steps=True,
-            warmup_steps=500,
+            warmup_steps=2000,
             loss_fn=optax.softmax_cross_entropy_with_integer_labels,
             b1=0.9,
-            b2=0.99,
+            b2=0.95,
             b3=0.,
             sam=None,
             sam_rho=0.,
