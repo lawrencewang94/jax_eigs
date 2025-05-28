@@ -550,7 +550,7 @@ class MLPNet(nn.Module):
             x = x.reshape((x.shape[0], -1))
 
         for i in range(self.depth):
-            x = nn.Dense(self.n_h)
+            x = nn.Dense(self.n_h)(x)
             if self.use_BN:
                 x = nn.BatchNorm(use_running_average=not train)(x)
             if self.use_DO:
